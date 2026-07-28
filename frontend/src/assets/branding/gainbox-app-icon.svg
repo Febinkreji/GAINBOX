@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none" role="img" aria-label="GainBox app icon">
+  <title>GainBox app icon</title>
+  <rect width="512" height="512" rx="116" fill="#3B2A9E"></rect>
+  <g transform="translate(128 128) scale(4)">
+    <path d="M56 26 V22 A14 14 0 0 0 42 8 H22 A14 14 0 0 0 8 22 V42 A14 14 0 0 0 22 56 H42 A14 14 0 0 0 56 42 V38 H34" stroke="#FFFFFF" stroke-width="9"></path>
+  </g>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="64" viewBox="0 0 300 64" fill="none" role="img" aria-label="GainBox">
+  <title>GainBox horizontal lockup</title>
+  <path d="M56 26 V22 A14 14 0 0 0 42 8 H22 A14 14 0 0 0 8 22 V42 A14 14 0 0 0 22 56 H42 A14 14 0 0 0 56 42 V38 H34" stroke="#FFFFFF" stroke-width="9"></path>
+  <text x="84" y="47.5" fill="#FFFFFF" font-family="Manrope, &#39;Helvetica Neue&#39;, Arial, sans-serif" font-weight="700" font-size="46" letter-spacing="-1.6">GainBox</text>
+</svg>
