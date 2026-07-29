@@ -21,10 +21,11 @@ import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
  *    NotImplementedError is the expected state right now, not a bug.
  */
 export const branchService = {
-  async list(query) {
+  async list(query, accessibleMerchantIds) {
     const pagination = parsePagination(query)
     const filters = {
       merchantId: query.merchantId,
+      merchantIds: accessibleMerchantIds,
       status: query.status,
       search: query.search,
       sortBy: query.sortBy,

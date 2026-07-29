@@ -1,10 +1,11 @@
 import { env } from './env.js'
 
 /**
- * Credential shape only. The `firebase-admin` SDK is deliberately not a
- * dependency yet — nothing calls `admin.initializeApp()` with this. It
- * exists so the future identity provider adapter (see
- * src/modules/auth/identityProvider.port.js) has one place to read from.
+ * Credential shape only — no `firebase-admin` import here. This is the one
+ * place that reads the raw env vars; the actual SDK call
+ * (`admin.initializeApp()`) lives in
+ * src/modules/auth/adapters/firebaseIdentityAdapter.js, the only file that
+ * imports `firebase-admin` directly.
  */
 export const firebaseConfig = {
   projectId: env.FIREBASE_PROJECT_ID,

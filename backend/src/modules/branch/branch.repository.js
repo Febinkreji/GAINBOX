@@ -28,12 +28,18 @@ const SORT_COLUMNS = {
 
 // Same shape as merchant.repository.js's LIST_WHERE_CLAUSE: one static,
 // fully parameterized WHERE clause shared by findAll/count so the two
-// queries can never disagree on what counts as a "match".
+// queries can never disagree on what counts as a "match". $4 is the
+// tenant-scoping filter Authorization supplies (see
+// authorizationService.getAccessibleMerchantIds) — null for an
+// unrestricted platform-admin query, an array otherwise. Distinct from $1
+// (`merchantId`), which is the caller's own optional "narrow to this one
+// merchant" query filter — both apply together.
 const LIST_WHERE_CLAUSE = `
   deleted_at IS NULL
   AND ($1::uuid IS NULL OR merchant_id = $1)
   AND ($2::varchar IS NULL OR status = $2)
   AND ($3::text IS NULL OR name ILIKE '%' || $3 || '%' OR city ILIKE '%' || $3 || '%')
+  AND ($4::uuid[] IS NULL OR merchant_id = ANY($4::uuid[]))
 `
 
 const SELECT_COLUMNS = `
@@ -80,8 +86,15 @@ export class BranchRepository {
        FROM branches
        WHERE ${LIST_WHERE_CLAUSE}
        ORDER BY ${sortColumn} ${sortOrder}
-       LIMIT $4 OFFSET $5`,
-      [filters.merchantId ?? null, filters.status ?? null, filters.search ?? null, pagination.pageSize, pagination.offset],
+       LIMIT $5 OFFSET $6`,
+      [
+        filters.merchantId ?? null,
+        filters.status ?? null,
+        filters.search ?? null,
+        filters.merchantIds ?? null,
+        pagination.pageSize,
+        pagination.offset,
+      ],
     )
 
     return result.rows.map(mapRow)
@@ -90,7 +103,7 @@ export class BranchRepository {
   async count(filters, client = getPool()) {
     const result = await client.query(
       `SELECT COUNT(*)::int AS total FROM branches WHERE ${LIST_WHERE_CLAUSE}`,
-      [filters.merchantId ?? null, filters.status ?? null, filters.search ?? null],
+      [filters.merchantId ?? null, filters.status ?? null, filters.search ?? null, filters.merchantIds ?? null],
     )
 
     return result.rows[0].total

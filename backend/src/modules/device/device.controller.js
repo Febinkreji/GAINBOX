@@ -4,8 +4,8 @@ import { deviceService } from './device.service.js'
 
 export const deviceController = {
   list: asyncHandler(async (req, res) => {
-    const devices = await deviceService.listByBranch(req.query.branchId)
-    ApiResponse.send(res, { data: devices })
+    const { items, meta } = await deviceService.list(req.query, req.accessibleMerchantIds)
+    ApiResponse.send(res, { data: items, meta })
   }),
 
   getById: asyncHandler(async (req, res) => {
@@ -13,28 +13,18 @@ export const deviceController = {
     ApiResponse.send(res, { data: device })
   }),
 
-  register: asyncHandler(async (req, res) => {
-    const device = await deviceService.register(req.body)
-    ApiResponse.send(res, { statusCode: 201, data: device, message: 'Device registered' })
+  create: asyncHandler(async (req, res) => {
+    const device = await deviceService.create(req.body, req.user?.id)
+    ApiResponse.send(res, { statusCode: 201, data: device, message: 'Device created' })
   }),
 
   update: asyncHandler(async (req, res) => {
-    const device = await deviceService.update(req.params.id, req.body)
+    const device = await deviceService.update(req.params.id, req.body, req.user?.id)
     ApiResponse.send(res, { data: device, message: 'Device updated' })
   }),
 
-  deactivate: asyncHandler(async (req, res) => {
-    await deviceService.deactivate(req.params.id)
-    ApiResponse.send(res, { message: 'Device deactivated' })
-  }),
-
-  configureBranding: asyncHandler(async (req, res) => {
-    const device = await deviceService.configureBranding(req.params.id, req.body)
-    ApiResponse.send(res, { data: device, message: 'Device branding updated' })
-  }),
-
-  configureTips: asyncHandler(async (req, res) => {
-    const device = await deviceService.configureTips(req.params.id, req.body)
-    ApiResponse.send(res, { data: device, message: 'Device tip configuration updated' })
+  remove: asyncHandler(async (req, res) => {
+    await deviceService.remove(req.params.id, req.user?.id)
+    ApiResponse.send(res, { message: 'Device deleted' })
   }),
 }

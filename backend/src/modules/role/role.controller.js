@@ -24,7 +24,7 @@ export const roleController = {
   }),
 
   assignPermission: asyncHandler(async (req, res) => {
-    const role = await roleService.assignPermission(req.params.id, req.body.permissionId)
-    ApiResponse.send(res, { data: role, message: 'Permission assigned' })
+    const grant = await roleService.assignPermission(req.params.id, req.body.permissionId)
+    ApiResponse.send(res, { data: grant, message: 'Permission assigned' })
   }),
 }

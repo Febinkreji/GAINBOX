@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middlewares/auth.middleware.js'
+import { requirePermission, requireOwnership, scopeMerchantAccess } from '../../middlewares/authorization.middleware.js'
 import { validate } from '../../middlewares/validate.middleware.js'
 import { branchController } from './branch.controller.js'
 import {
@@ -75,7 +76,17 @@ router.use(requireAuth())
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ValidationError' }
  */
-router.get('/', validate(listBranchesQuerySchema, 'query'), branchController.list)
+// Tenant-scoped: scopeMerchantAccess() resolves req.accessibleMerchantIds
+// (null for platform admins, else the merchants this user is actively
+// staffed at) and branchController.list forwards it into the repository's
+// SQL filter — non-admins never see another merchant's branches here.
+router.get(
+  '/',
+  requirePermission('branch.read'),
+  scopeMerchantAccess(),
+  validate(listBranchesQuerySchema, 'query'),
+  branchController.list,
+)
 
 /**
  * @openapi
@@ -112,7 +123,13 @@ router.get('/', validate(listBranchesQuerySchema, 'query'), branchController.lis
  *           application/json:
  *             schema: { $ref: '#/components/schemas/NotFoundError' }
  */
-router.get('/:id', validate(branchIdParamSchema, 'params'), branchController.getById)
+router.get(
+  '/:id',
+  validate(branchIdParamSchema, 'params'),
+  requirePermission('branch.read'),
+  requireOwnership('branch', (req) => req.params.id),
+  branchController.getById,
+)
 
 /**
  * @openapi
@@ -171,7 +188,13 @@ router.get('/:id', validate(branchIdParamSchema, 'params'), branchController.get
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ValidationError' }
  */
-router.post('/', validate(createBranchSchema), branchController.create)
+router.post(
+  '/',
+  validate(createBranchSchema),
+  requirePermission('branch.write'),
+  requireOwnership('merchant', (req) => req.body.merchantId),
+  branchController.create,
+)
 
 /**
  * @openapi
@@ -231,6 +254,8 @@ router.post('/', validate(createBranchSchema), branchController.create)
 router.patch(
   '/:id',
   validate(branchIdParamSchema, 'params'),
+  requirePermission('branch.write'),
+  requireOwnership('branch', (req) => req.params.id),
   validate(updateBranchSchema),
   branchController.update,
 )
@@ -266,6 +291,12 @@ router.patch(
  *           application/json:
  *             schema: { $ref: '#/components/schemas/NotFoundError' }
  */
-router.delete('/:id', validate(branchIdParamSchema, 'params'), branchController.remove)
+router.delete(
+  '/:id',
+  validate(branchIdParamSchema, 'params'),
+  requirePermission('branch.write'),
+  requireOwnership('branch', (req) => req.params.id),
+  branchController.remove,
+)
 
 export default router

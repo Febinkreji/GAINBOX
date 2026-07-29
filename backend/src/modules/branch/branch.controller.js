@@ -4,7 +4,7 @@ import { branchService } from './branch.service.js'
 
 export const branchController = {
   list: asyncHandler(async (req, res) => {
-    const { items, meta } = await branchService.list(req.query)
+    const { items, meta } = await branchService.list(req.query, req.accessibleMerchantIds)
     ApiResponse.send(res, { data: items, meta })
   }),
 

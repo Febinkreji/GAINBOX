@@ -8,8 +8,11 @@ export const authController = {
     ApiResponse.send(res, { statusCode: 201, data: session, message: 'Session created' })
   }),
 
+  // requireAuth() already verified the token and populated req.user — this
+  // endpoint just reflects that identity back. No database lookup: that
+  // would be a "fetch the full profile" feature, which belongs to the User
+  // module once it has a real repository.
   getCurrentUser: asyncHandler(async (req, res) => {
-    const user = await authService.getCurrentUser(req.user.id)
-    ApiResponse.send(res, { data: user })
+    ApiResponse.send(res, { data: req.user })
   }),
 }

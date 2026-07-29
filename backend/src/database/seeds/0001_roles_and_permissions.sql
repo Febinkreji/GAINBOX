@@ -1,42 +1,68 @@
--- Foundational RBAC reference data only — roles, a representative (not
--- exhaustive) permission set, and illustrative role-permission mappings.
--- Deliberately NOT seeding merchants/branches/payments: that's demo data,
--- and frontend/src/pages/Dashboard/dummyData.js already owns that role.
+-- Foundational RBAC reference data — roles, permissions, and role-permission
+-- grants that Authorization actually reads at runtime (see
+-- modules/authorization/authorization.service.js). No longer illustrative:
+-- this is the enforced permission set for the current phase.
+--
+-- Permission naming is "<resource>.<read|write>" — coarser by design, this
+-- phase distinguishes read vs write per resource, not per specific
+-- operation (create/update/delete all count as "write"). Replaces this
+-- file's earlier "<resource>:<action>" scheme (merchant:manage,
+-- payment:refund, ...), which predates RBAC's actual design and was never
+-- read by any real authorization check.
+--
+-- Deliberately NOT seeding merchant_staff/user_roles: which real user holds
+-- which role is tenant data, not reference data — same reasoning this file
+-- already applies to merchants/branches/payments.
+--
 -- Idempotent: safe to run more than once.
 
 INSERT INTO roles (name, description) VALUES
-  ('merchant-owner', 'Full control over a merchant account'),
-  ('merchant-staff', 'Limited operational access within a merchant account'),
-  ('platform-admin', 'GainBox internal administrator'),
+  ('platform-admin', 'GainBox internal administrator — full cross-merchant access'),
+  ('merchant-owner', 'Full control over a single merchant account'),
+  ('merchant-staff', 'Day-to-day operational access within a merchant account'),
+  ('viewer', 'Read-only access within a merchant account'),
   ('customer', 'End customer purchasing memberships or meal plans')
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO permissions (name, description) VALUES
-  ('merchant:manage', 'Update merchant profile and business branding'),
-  ('branch:manage', 'Create and manage branches'),
-  ('device:manage', 'Register and configure payment terminals'),
-  ('membership_plan:manage', 'Create and manage membership plans'),
-  ('payment:view', 'View payment and receipt history'),
-  ('payment:refund', 'Issue refunds and cancel payments'),
-  ('staff:manage', 'Invite and manage merchant staff'),
-  ('analytics:view', 'View analytics and reporting')
+  ('merchant.read', 'View merchant profile and business details'),
+  ('merchant.write', 'Create or update merchant profile and business details'),
+  ('branch.read', 'View branch details'),
+  ('branch.write', 'Create, update, or remove branches'),
+  ('device.read', 'View device details'),
+  ('device.write', 'Register, update, or remove devices'),
+  ('membership.read', 'View membership plans and subscriptions'),
+  ('membership.write', 'Create, update, or cancel membership plans and subscriptions'),
+  ('platform.read', 'View platform-wide, cross-merchant data'),
+  ('platform.write', 'Perform platform-wide administrative actions')
 ON CONFLICT (name) DO NOTHING;
 
--- merchant-owner: everything.
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
-WHERE r.name = 'merchant-owner'
-ON CONFLICT DO NOTHING;
-
--- merchant-staff: day-to-day operations, no refunds, no staff management.
-INSERT INTO role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM roles r JOIN permissions p
-  ON p.name IN ('branch:manage', 'device:manage', 'membership_plan:manage', 'payment:view', 'analytics:view')
-WHERE r.name = 'merchant-staff'
-ON CONFLICT DO NOTHING;
-
--- platform-admin: everything, same as merchant-owner today.
+-- platform-admin: every permission.
 INSERT INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
 WHERE r.name = 'platform-admin'
+ON CONFLICT DO NOTHING;
+
+-- merchant-owner: full control within their own merchant(s), no platform.*.
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+  ON p.name IN ('merchant.read', 'merchant.write', 'branch.read', 'branch.write',
+                'device.read', 'device.write', 'membership.read', 'membership.write')
+WHERE r.name = 'merchant-owner'
+ON CONFLICT DO NOTHING;
+
+-- merchant-staff: operates branches/devices/memberships day to day, can't
+-- edit the merchant profile itself.
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+  ON p.name IN ('merchant.read', 'branch.read', 'branch.write',
+                'device.read', 'device.write', 'membership.read', 'membership.write')
+WHERE r.name = 'merchant-staff'
+ON CONFLICT DO NOTHING;
+
+-- viewer: read-only, everywhere they have access.
+INSERT INTO role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM roles r JOIN permissions p
+  ON p.name IN ('merchant.read', 'branch.read', 'device.read', 'membership.read')
+WHERE r.name = 'viewer'
 ON CONFLICT DO NOTHING;
