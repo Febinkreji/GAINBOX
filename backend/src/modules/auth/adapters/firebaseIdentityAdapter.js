@@ -22,8 +22,12 @@ let app
  * not an AppError — it should surface as 500, not 401, since a client's
  * token isn't the problem.
  */
+function isConfigured() {
+  return Boolean(firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.privateKey)
+}
+
 function getFirebaseAuth() {
-  if (!firebaseConfig.projectId || !firebaseConfig.clientEmail || !firebaseConfig.privateKey) {
+  if (!isConfigured()) {
     throw new Error(
       'Firebase Admin credentials are not configured — set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, and FIREBASE_PRIVATE_KEY.',
     )
@@ -66,6 +70,28 @@ export const firebaseIdentityAdapter = {
       // thrown) since the normalized 401 alone won't tell us *why*.
       logger.warn({ err: error }, 'Firebase token verification failed')
       throw new UnauthorizedError('Invalid or expired authentication token')
+    }
+  },
+
+  /**
+   * Health-check only (see modules/platform/platform.health.service.js) —
+   * proves Firebase Admin can actually reach Firebase's servers, not just
+   * that credentials are present, via one cheap, harmless admin call
+   * (list at most 1 user). Never used by the authentication path itself,
+   * and never throws — a failed check is health information, not an error.
+   */
+  async checkConnectivity() {
+    if (!isConfigured()) {
+      return { status: 'not_configured' }
+    }
+
+    try {
+      const auth = getFirebaseAuth()
+      await auth.listUsers(1)
+      return { status: 'ok' }
+    } catch (error) {
+      logger.warn({ err: error }, 'Firebase connectivity check failed')
+      return { status: 'error', message: error.message }
     }
   },
 }

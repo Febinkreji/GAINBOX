@@ -43,6 +43,17 @@ async function isPlatformAdmin(userId) {
 export const authorizationService = {
   isPlatformAdmin,
 
+  /**
+   * Every role id/name this user is assigned, merging global (user_roles)
+   * and merchant-scoped (merchant_staff) grants — exposed publicly (not
+   * just used internally by userHasAnyRole/userHasPermission) so read-only
+   * consumers like Platform Control Center's User Details can display "what
+   * roles/permissions does this user have" without re-deriving the same
+   * merge logic outside Authorization.
+   */
+  getAssignedRoleIds,
+  getAssignedRoleNames,
+
   /** Does this user hold ANY of these role names, globally or at any merchant? */
   async userHasAnyRole(userId, roleNames) {
     const assignedNames = await getAssignedRoleNames(userId)

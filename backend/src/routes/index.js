@@ -10,6 +10,7 @@ import userRoutes from '../modules/user/index.js'
 import authRoutes from '../modules/auth/index.js'
 import roleRoutes from '../modules/role/index.js'
 import notificationRoutes from '../modules/notification/index.js'
+import platformRoutes from '../modules/platform/index.js'
 
 /**
  * Every module owns its own router; this file only aggregates and mounts
@@ -29,5 +30,6 @@ router.use('/analytics', analyticsRoutes)
 router.use('/users', userRoutes)
 router.use('/roles', roleRoutes)
 router.use('/notifications', notificationRoutes)
+router.use('/platform', platformRoutes)
 
 export default router

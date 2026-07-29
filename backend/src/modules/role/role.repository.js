@@ -42,6 +42,29 @@ export class RoleRepository extends BaseRepository {
   }
 
   /**
+   * Distinct permission names granted by any of `roleIds` — the "what can
+   * this set of roles actually do" view Platform Control Center's User
+   * Details needs. Same role_permissions join as `hasPermission`, just
+   * returning names instead of a single yes/no.
+   */
+  async findPermissionNamesForRoles(roleIds, client = getPool()) {
+    if (roleIds.length === 0) {
+      return []
+    }
+
+    const result = await client.query(
+      `SELECT DISTINCT p.name
+       FROM role_permissions rp
+       JOIN permissions p ON p.id = rp.permission_id AND p.deleted_at IS NULL
+       WHERE rp.role_id = ANY($1::uuid[])
+       ORDER BY p.name`,
+      [roleIds],
+    )
+
+    return result.rows.map((row) => row.name)
+  }
+
+  /**
    * Grants `permissionId` to `roleId` by inserting into role_permissions —
    * the actual source of truth Authorization reads (see `hasPermission`
    * above). Fixes the pre-existing bug where this instead called

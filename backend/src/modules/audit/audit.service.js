@@ -1,11 +1,13 @@
 import { auditRepository } from './audit.repository.js'
+import { NotFoundError } from '../../errors/index.js'
+import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
 
 /**
- * Internal infrastructure only — no routes, no controller, nothing public.
- * Called by domain services after a successful write, inside the same DB
- * transaction as that write (see merchant.service.js), so "the change
- * happened but nothing recorded who did it" can't occur: if the audit
- * insert fails, the whole transaction rolls back with it.
+ * `record` remains internal infrastructure — called by domain services
+ * after a successful write, inside the same DB transaction as that write
+ * (see merchant.service.js). Untouched by Phase 3: `list`/`getById` below
+ * are the only public, routed capability this service gains, and they only
+ * read (see audit.controller.js, wired under /platform/audit).
  */
 export const auditService = {
   /**
@@ -14,5 +16,40 @@ export const auditService = {
    */
   async record(entry, client) {
     return auditRepository.record(entry, client)
+  },
+
+  async list(query) {
+    const pagination = parsePagination(query)
+    const filters = {
+      entityType: query.entityType,
+      entityId: query.entityId,
+      actorUserId: query.actorUserId,
+      action: query.action,
+      severity: query.severity,
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+      search: query.search,
+      sortOrder: query.sortOrder,
+    }
+
+    const [items, total] = await Promise.all([
+      auditRepository.findAll(filters, pagination),
+      auditRepository.count(filters),
+    ])
+
+    return {
+      items,
+      meta: buildPaginationMeta({ page: pagination.page, pageSize: pagination.pageSize, total }),
+    }
+  },
+
+  async getById(id) {
+    const entry = await auditRepository.findById(id)
+
+    if (!entry) {
+      throw new NotFoundError('Audit entry not found')
+    }
+
+    return entry
   },
 }
