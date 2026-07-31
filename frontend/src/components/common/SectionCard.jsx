@@ -4,13 +4,13 @@ export default function SectionCard({ title, description, action, children, clas
   return (
     <div
       className={cn(
-        'rounded-2xl border border-neutral-800 bg-neutral-900/40 shadow-sm transition-colors duration-200 hover:border-neutral-700/80',
+        'rounded-2xl border border-neutral-200 bg-white shadow-sm transition-colors duration-200 hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900/40 dark:hover:border-neutral-700/80',
         className,
       )}
     >
-      <div className="flex items-center justify-between gap-4 border-b border-neutral-800/80 px-5 py-4">
+      <div className="flex items-center justify-between gap-4 border-b border-neutral-200/80 px-5 py-4 dark:border-neutral-800/80">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-neutral-100">{title}</h3>
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{title}</h3>
           {description && <p className="mt-0.5 truncate text-xs text-neutral-500">{description}</p>}
         </div>
         {action && <div className="shrink-0">{action}</div>}

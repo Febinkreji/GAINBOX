@@ -20,16 +20,21 @@ export default function TasksCard({ tasks, loading = false }) {
           {tasks.map((task) => (
             <li
               key={task.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-neutral-800/60 bg-neutral-900/30 px-3.5 py-3 transition-colors duration-200 hover:border-neutral-700 hover:bg-neutral-900/50"
+              className="flex items-center justify-between gap-3 rounded-lg border border-neutral-200/60 bg-neutral-50 px-3.5 py-3 transition-colors duration-200 hover:border-neutral-300 hover:bg-neutral-100/50 dark:border-neutral-800/60 dark:bg-neutral-900/30 dark:hover:border-neutral-700 dark:hover:bg-neutral-900/50"
             >
               <div className="flex items-center gap-3">
                 <span className="relative flex h-2 w-2 shrink-0">
                   {task.urgent && (
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                   )}
-                  <span className={cn('relative inline-flex h-2 w-2 rounded-full', task.urgent ? 'bg-red-400' : 'bg-neutral-600')} />
+                  <span
+                    className={cn(
+                      'relative inline-flex h-2 w-2 rounded-full',
+                      task.urgent ? 'bg-red-400' : 'bg-neutral-300 dark:bg-neutral-600',
+                    )}
+                  />
                 </span>
-                <p className="text-sm text-neutral-200">{task.title}</p>
+                <p className="text-sm text-neutral-800 dark:text-neutral-200">{task.title}</p>
               </div>
               <Badge tone={task.urgent ? 'danger' : 'neutral'} className="shrink-0">
                 {task.due}

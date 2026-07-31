@@ -22,9 +22,9 @@ export default function RevenueTrendCard({ data, currentValue, changeLabel, load
       title="Revenue Trend"
       description="Gross merchant revenue processed through GainBox"
       action={
-        <div className="relative flex rounded-lg bg-neutral-900 p-1">
+        <div className="relative flex rounded-lg bg-neutral-100 p-1 dark:bg-neutral-900">
           <div
-            className="absolute inset-y-1 left-1 rounded-md bg-neutral-800 transition-transform duration-300 ease-out"
+            className="absolute inset-y-1 left-1 rounded-md bg-white shadow-sm transition-transform duration-300 ease-out dark:bg-neutral-800 dark:shadow-none"
             style={{ width: 'calc((100% - 8px) / 3)', transform: `translateX(${activeIndex * 100}%)` }}
           />
           {RANGE_KEYS.map((key) => (
@@ -34,7 +34,9 @@ export default function RevenueTrendCard({ data, currentValue, changeLabel, load
               onClick={() => setRange(key)}
               className={cn(
                 'relative z-10 flex-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                range === key ? 'text-neutral-100' : 'text-neutral-500 hover:text-neutral-300',
+                range === key
+                  ? 'text-neutral-900 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300',
               )}
             >
               {key}
@@ -54,8 +56,8 @@ export default function RevenueTrendCard({ data, currentValue, changeLabel, load
       ) : (
         <>
           <div className="mb-5">
-            <p className="text-3xl font-semibold tabular-nums text-neutral-50">{currentValue}</p>
-            <p className="mt-1.5 flex items-center gap-1 text-sm text-emerald-400">
+            <p className="text-3xl font-semibold tabular-nums text-neutral-950 dark:text-neutral-50">{currentValue}</p>
+            <p className="mt-1.5 flex items-center gap-1 text-sm text-emerald-600 dark:text-emerald-400">
               <TrendingUp size={14} />
               {changeLabel}
             </p>

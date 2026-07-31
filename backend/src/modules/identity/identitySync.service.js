@@ -33,9 +33,26 @@ export const identitySyncService = {
 
     const existing = await userRepository.findByFirebaseUid(identity.id)
 
-    const user = existing ? await syncExisting(existing, identity) : await createUser(identity)
+    if (existing) {
+      return toRequestIdentity(await syncExisting(existing, identity))
+    }
 
-    return toRequestIdentity(user)
+    // Development Bootstrap support (see
+    // src/bootstrap/platformAdminBootstrap.js): that module may have
+    // already created a placeholder user row for a known email — no
+    // firebase_uid yet, since nobody had signed in when it ran. If this
+    // identity's email matches one of those rows, link this real Firebase
+    // UID to it instead of falling through to createUser(), which would
+    // otherwise fail on the email uniqueness constraint (or worse, silently
+    // create a second, unrelated account for someone who already has a
+    // platform-admin role waiting for them).
+    const unclaimed = await userRepository.findUnclaimedByEmail(identity.email)
+
+    if (unclaimed) {
+      return toRequestIdentity(await claimUnclaimedUser(unclaimed, identity))
+    }
+
+    return toRequestIdentity(await createUser(identity))
   },
 }
 
@@ -76,6 +93,38 @@ async function createUser(identity) {
 
     throw error
   }
+}
+
+/**
+ * Links a real Firebase UID to a placeholder user row (see migration 0026
+ * and userRepository.findUnclaimedByEmail) — the bootstrap counterpart to
+ * syncExisting() above, distinguished only by also writing firebaseUid,
+ * which a normal sync never touches. The email is already known to match
+ * (that's how `unclaimed` was found), so there's nothing to reconcile
+ * there; displayName is filled in from the real Google profile if the
+ * placeholder had none.
+ */
+async function claimUnclaimedUser(existing, identity) {
+  return withTransaction(async (client) => {
+    const updated = await userRepository.update(
+      existing.id,
+      { firebaseUid: identity.id, displayName: identity.name ?? existing.displayName },
+      client,
+    )
+
+    await auditService.record(
+      {
+        entityType: 'user',
+        entityId: existing.id,
+        action: 'user.claimed',
+        actorUserId: existing.id,
+        metadata: { email: existing.email },
+      },
+      client,
+    )
+
+    return updated
+  })
 }
 
 async function syncExisting(existing, identity) {

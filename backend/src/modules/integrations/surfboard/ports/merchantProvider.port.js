@@ -8,8 +8,9 @@
  * Multi Merchant Group.
  *
  * @typedef {object} MerchantProviderPort
- * @property {(merchant: object) => Promise<{ externalId: string }>} createMerchant
+ * @property {(merchant: object) => Promise<{ externalId: string, status: string, metadata: { applicationId: string, webKybUrl: string|null, merchantId: string|null, storeId: string|null, shortLinkUrl: string|null, message: string } }>} createMerchant
+ * @property {(applicationId: string) => Promise<{ status: string, data: { applicationId: string, webKybUrl: string, applicationStatus: string, merchantId: string, storeId: string }, message: string }>} getMerchantStatus
  * @property {(externalId: string, updates: object) => Promise<void>} updateMerchant
  * @property {(groupId: string, merchantIds: string[]) => Promise<void>} groupMerchants
  */
-export const MERCHANT_PROVIDER_PORT_SHAPE = ['createMerchant', 'updateMerchant', 'groupMerchants']
+export const MERCHANT_PROVIDER_PORT_SHAPE = ['createMerchant', 'getMerchantStatus', 'updateMerchant', 'groupMerchants']

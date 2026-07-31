@@ -11,7 +11,7 @@ export default function StatCard({ label, value, icon: Icon, trend, sparkline, h
     return (
       <div
         className={cn(
-          'rounded-2xl border border-neutral-800/80 bg-neutral-900/40 shadow-premium',
+          'rounded-2xl border border-neutral-200/80 bg-neutral-50 shadow-premium dark:border-neutral-800/80 dark:bg-neutral-900/40',
           isLarge ? 'p-6' : 'p-5',
         )}
       >
@@ -30,16 +30,16 @@ export default function StatCard({ label, value, icon: Icon, trend, sparkline, h
   return (
     <div
       className={cn(
-        'group relative flex flex-col justify-between rounded-2xl border border-neutral-800/80 bg-gradient-to-b from-neutral-900/60 to-neutral-900/20 shadow-premium transition-all duration-300 hover:-translate-y-1 hover:border-neutral-700 hover:shadow-premium-hover',
+        'group relative flex flex-col justify-between rounded-2xl border border-neutral-200/80 bg-gradient-to-b from-white to-neutral-50 shadow-premium transition-all duration-300 hover:-translate-y-1 hover:border-neutral-300 hover:shadow-premium-hover dark:border-neutral-800/80 dark:from-neutral-900/60 dark:to-neutral-900/20 dark:hover:border-neutral-700',
         isLarge ? 'p-6' : 'p-5',
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-neutral-400">{label}</p>
+          <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">{label}</p>
           <p
             className={cn(
-              'mt-2 font-semibold tabular-nums text-neutral-50',
+              'mt-2 font-semibold tabular-nums text-neutral-950 dark:text-neutral-50',
               isLarge ? 'text-[28px] leading-none' : 'text-2xl',
             )}
           >
@@ -49,7 +49,7 @@ export default function StatCard({ label, value, icon: Icon, trend, sparkline, h
         {Icon && (
           <div
             className={cn(
-              'flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500/20 to-brand-500/5 text-brand-400 ring-1 ring-inset ring-brand-500/10 transition-transform duration-300 group-hover:scale-110',
+              'flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500/20 to-brand-500/5 text-brand-600 ring-1 ring-inset ring-brand-500/10 transition-transform duration-300 group-hover:scale-110 dark:text-brand-400',
               isLarge ? 'h-11 w-11' : 'h-10 w-10',
             )}
           >
@@ -64,14 +64,19 @@ export default function StatCard({ label, value, icon: Icon, trend, sparkline, h
             <span
               className={cn(
                 'flex items-center gap-1 text-xs font-medium',
-                trendUp ? 'text-emerald-400' : 'text-red-400',
+                trendUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
               )}
             >
               {trendUp ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
               {trend.label}
             </span>
           )}
-          {sparkline && <Sparkline data={sparkline} className={trendUp ? 'text-emerald-400' : 'text-red-400'} />}
+          {sparkline && (
+            <Sparkline
+              data={sparkline}
+              className={trendUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}
+            />
+          )}
         </div>
       )}
 

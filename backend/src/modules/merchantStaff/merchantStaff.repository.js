@@ -7,13 +7,30 @@ import { getPool } from '../../database/connection.js'
  * @property {string} userId
  * @property {string} roleId
  *
- * Read-only from Authorization's side — see migration 0008. Inviting,
- * removing, or re-hiring staff (the write side of this table) is a future
- * Merchant Portal feature, not part of this phase; only the queries
- * Authorization needs to make access decisions live here.
+ * Mostly read-only from Authorization's side (see migration 0008) — `create`
+ * below is the one write method, added for Merchant Onboarding (assigning
+ * an existing user as the first Merchant Owner, and Invitation acceptance
+ * assigning a brand-new one). Full staff management (invite/remove/
+ * re-hire via a Merchant Portal UI) is still a future phase; this is only
+ * the write Onboarding/Invitation acceptance genuinely needs.
  */
 
 export class MerchantStaffRepository {
+  async findById(id, client = getPool()) {
+    const result = await client.query(
+      `SELECT id, merchant_id, user_id, role_id, status
+       FROM merchant_staff
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [id],
+    )
+
+    const row = result.rows[0]
+
+    if (!row) return null
+
+    return { id: row.id, merchantId: row.merchant_id, userId: row.user_id, roleId: row.role_id, status: row.status }
+  }
+
   async findActiveAssignment(userId, merchantId, client = getPool()) {
     const result = await client.query(
       `SELECT id, merchant_id, user_id, role_id
@@ -113,6 +130,65 @@ export class MerchantStaffRepository {
       status: row.status,
       createdAt: row.created_at,
     }))
+  }
+
+  /**
+   * Assigns a user to a merchant with a role — status defaults to 'active'
+   * (the DB column default), never passed explicitly, same
+   * enforcement-by-omission pattern Merchant/Device use for their own
+   * "born in this state" rules. A conflicting existing (non-deleted) row
+   * for the same (merchantId, userId) surfaces as a unique_violation (see
+   * migration 0008's merchant_staff_active_assignment_uq) — callers
+   * (MerchantOnboardingService, invitation.service.js) catch that
+   * specifically rather than this repository silently upserting.
+   */
+  async create(data, client = getPool()) {
+    const result = await client.query(
+      `INSERT INTO merchant_staff (merchant_id, user_id, role_id, invited_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, merchant_id, user_id, role_id, status, created_at, updated_at`,
+      [data.merchantId, data.userId, data.roleId, data.invitedBy ?? null],
+    )
+
+    const row = result.rows[0]
+
+    return {
+      id: row.id,
+      merchantId: row.merchant_id,
+      userId: row.user_id,
+      roleId: row.role_id,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  /**
+   * Removing staff is a status transition ('active' -> 'removed'), not a
+   * delete — merchant_staff intentionally keeps the row so "removed, then
+   * re-hired" stays representable (see migration 0008). No deleted_at
+   * write here; that's a separate, unused-so-far concept for this table.
+   */
+  async updateStatus(id, status, client = getPool()) {
+    const result = await client.query(
+      `UPDATE merchant_staff SET status = $1 WHERE id = $2 AND deleted_at IS NULL
+       RETURNING id, merchant_id, user_id, role_id, status, created_at, updated_at`,
+      [status, id],
+    )
+
+    const row = result.rows[0]
+
+    if (!row) return null
+
+    return {
+      id: row.id,
+      merchantId: row.merchant_id,
+      userId: row.user_id,
+      roleId: row.role_id,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
   }
 }
 

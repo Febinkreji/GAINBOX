@@ -109,7 +109,7 @@ export default function AreaChart({ data }) {
             x2={VIEWBOX_WIDTH}
             y1={y}
             y2={y}
-            className="stroke-neutral-800/80"
+            className="stroke-neutral-200/80 dark:stroke-neutral-800/80"
             strokeWidth={1}
           />
         ))}
@@ -133,7 +133,7 @@ export default function AreaChart({ data }) {
           style={{ transition: 'stroke-dashoffset 1.1s cubic-bezier(0.16, 1, 0.3, 1)' }}
         />
 
-        <circle cx={lastPoint.x} cy={lastPoint.y} r={5} className="fill-brand-400 stroke-neutral-950" strokeWidth={2.5} />
+        <circle cx={lastPoint.x} cy={lastPoint.y} r={5} className="fill-brand-500 stroke-white dark:fill-brand-400 dark:stroke-neutral-950" strokeWidth={2.5} />
 
         {hovered && (
           <>
@@ -142,21 +142,27 @@ export default function AreaChart({ data }) {
               x2={hovered.x}
               y1={PADDING_Y}
               y2={baseline}
-              className="stroke-neutral-600"
+              className="stroke-neutral-300 dark:stroke-neutral-600"
               strokeWidth={1}
               strokeDasharray="3 3"
             />
-            <circle cx={hovered.x} cy={hovered.y} r={5} className="fill-neutral-950 stroke-brand-400" strokeWidth={2.5} />
+            <circle
+              cx={hovered.x}
+              cy={hovered.y}
+              r={5}
+              className="fill-white stroke-brand-500 dark:fill-neutral-950 dark:stroke-brand-400"
+              strokeWidth={2.5}
+            />
           </>
         )}
       </svg>
 
       {hovered && (
         <div
-          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-[calc(100%+10px)] whitespace-nowrap rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 py-1.5 text-xs shadow-premium"
+          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-[calc(100%+10px)] whitespace-nowrap rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-premium dark:border-neutral-700 dark:bg-neutral-900"
           style={{ left: `${(hovered.x / VIEWBOX_WIDTH) * 100}%`, top: hovered.y }}
         >
-          <p className="font-semibold text-neutral-50">₹{data[hoverIndex].value}L</p>
+          <p className="font-semibold text-neutral-950 dark:text-neutral-50">₹{data[hoverIndex].value}L</p>
           <p className="text-neutral-500">{data[hoverIndex].label}</p>
         </div>
       )}

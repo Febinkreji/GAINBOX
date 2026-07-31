@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import { getPool } from '../../database/connection.js'
 import { identityProvider } from '../auth/identityProvider.providers.js'
-import { surfboardConfig } from '../../config/surfboard.config.js'
+import { checkSurfboardHealth } from '../integrations/surfboard/index.js'
 import { env } from '../../config/env.js'
 import { logger } from '../../logger/logger.js'
 
@@ -34,17 +34,10 @@ async function checkFirebase() {
   return { ...result, responseTimeMs: Math.round(performance.now() - startedAt) }
 }
 
-// Surfboard's HTTP client (surfboard.client.js) has no real request
-// implementation yet (every call throws NotImplementedError) — there is
-// nothing to actually reach over the network, so this reports that
-// honestly instead of faking a real connectivity check.
-function checkSurfboard() {
-  const configured = Boolean(surfboardConfig.baseUrl && surfboardConfig.apiKey)
-  return {
-    status: 'not_implemented',
-    configured,
-    message: 'Surfboard integration has no working HTTP client yet — see surfboard.client.js',
-  }
+async function checkSurfboard() {
+  const startedAt = performance.now()
+  const result = await checkSurfboardHealth()
+  return { ...result, responseTimeMs: Math.round(performance.now() - startedAt) }
 }
 
 // Placeholders per this phase's explicit scope: no queue worker or storage
@@ -62,13 +55,13 @@ export const platformHealthService = {
   async getHealth() {
     const startedAt = performance.now()
 
-    const [database, firebase] = await Promise.all([checkDatabase(), checkFirebase()])
+    const [database, firebase, surfboard] = await Promise.all([checkDatabase(), checkFirebase(), checkSurfboard()])
 
     return {
       api: { status: 'ok' },
       database,
       firebase,
-      surfboard: checkSurfboard(),
+      surfboard,
       queue: checkQueue(),
       storage: checkStorage(),
       uptimeSeconds: Math.round(process.uptime()),

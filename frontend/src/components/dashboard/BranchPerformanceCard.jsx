@@ -14,7 +14,7 @@ export default function BranchPerformanceCard({ branches, loading = false }) {
       action={
         <Link
           to={ROUTES.BRANCHES}
-          className="group flex items-center gap-1 text-sm font-medium text-brand-400 transition-colors hover:text-brand-300"
+          className="group flex items-center gap-1 text-sm font-medium text-brand-600 transition-colors hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
         >
           View all
           <ArrowRight size={14} className="transition-transform duration-200 group-hover:translate-x-0.5" />
@@ -40,15 +40,15 @@ export default function BranchPerformanceCard({ branches, loading = false }) {
           {branches.map((branch, index) => (
             <div
               key={branch.id}
-              className="-mx-2 rounded-lg px-2 py-2.5 transition-colors duration-200 hover:bg-neutral-900/50"
+              className="-mx-2 rounded-lg px-2 py-2.5 transition-colors duration-200 hover:bg-neutral-100/50 dark:hover:bg-neutral-900/50"
             >
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-neutral-800 text-[11px] font-semibold text-neutral-400">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-neutral-200 text-[11px] font-semibold text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
                     {index + 1}
                   </span>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-neutral-100">{branch.name}</p>
+                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{branch.name}</p>
                     <p className="text-xs text-neutral-500">
                       {branch.city} · {branch.members} members
                     </p>
@@ -56,10 +56,10 @@ export default function BranchPerformanceCard({ branches, loading = false }) {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {branch.isNew && <Badge tone="brand">New</Badge>}
-                  <p className="text-sm font-semibold tabular-nums text-neutral-100">{branch.revenue}</p>
+                  <p className="text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{branch.revenue}</p>
                 </div>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-400 shadow-[0_0_8px_0_var(--color-brand-500)] transition-[width] duration-700 ease-out"
                   style={{ width: `${branch.utilization}%` }}

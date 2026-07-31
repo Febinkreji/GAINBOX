@@ -13,7 +13,7 @@ export default function NotificationsCard({ notifications, loading = false }) {
       action={
         !loading &&
         unreadCount > 0 && (
-          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500/15 px-1.5 text-[11px] font-semibold text-brand-400">
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-500/15 px-1.5 text-[11px] font-semibold text-brand-700 dark:text-brand-400">
             {unreadCount}
           </span>
         )
@@ -35,7 +35,7 @@ export default function NotificationsCard({ notifications, loading = false }) {
           {notifications.map((item) => (
             <li
               key={item.id}
-              className="flex items-start gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-neutral-900/60"
+              className="flex items-start gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-neutral-100/60 dark:hover:bg-neutral-900/60"
             >
               <span className="relative mt-2 flex h-1.5 w-1.5 shrink-0">
                 {item.unread && (
@@ -47,7 +47,7 @@ export default function NotificationsCard({ notifications, loading = false }) {
                 <item.icon size={15} strokeWidth={1.75} />
               </span>
               <div className="min-w-0">
-                <p className="text-sm text-neutral-200">{item.message}</p>
+                <p className="text-sm text-neutral-800 dark:text-neutral-200">{item.message}</p>
                 <p className="mt-0.5 text-xs text-neutral-500">{item.time}</p>
               </div>
             </li>

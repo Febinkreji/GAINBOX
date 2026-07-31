@@ -108,6 +108,49 @@ export function scopeMerchantAccess() {
 }
 
 /**
+ * Populates `req.merchantId` for the merchant-context routes
+ * (/merchant/profile, /merchant/staff, /merchant/invitations/* — see
+ * merchant/merchantContext.routes.js) — the whole point of this middleware
+ * is that the frontend never supplies a merchantId at all; it's derived
+ * entirely from the authenticated user's own merchant_staff assignment
+ * (reusing authorizationService.getAccessibleMerchantIds — no new
+ * repository query). Platform admins get `null` from that call (they
+ * aren't scoped to any one merchant by definition), which these routes
+ * reject: there's no single merchant to derive for them, and they have
+ * Platform Control Center for cross-merchant access instead.
+ *
+ * Deliberately does NOT also call requireOwnership: the merchantId here
+ * was just derived FROM the user's own confirmed assignment, so a
+ * subsequent "does this user own this merchant" check would be checking
+ * a fact this function already established — not a missing security
+ * layer, a redundant one. Contrast with the legacy /merchants/:id/* routes,
+ * where the merchantId comes from an untrusted URL param and requireOwnership
+ * is the thing actually proving the caller belongs to it.
+ */
+export function requireMerchantContext() {
+  return async function requireMerchantContextMiddleware(req, _res, next) {
+    try {
+      assertActiveAccount(req.user)
+
+      const merchantIds = await authorizationService.getAccessibleMerchantIds(req.user.id)
+
+      if (!merchantIds || merchantIds.length === 0) {
+        throw new ForbiddenError('Your account is not assigned to a merchant')
+      }
+
+      // A user staffed at more than one merchant is a future multi-merchant-
+      // switcher concern (see frontend's AuthProvider, same convention) —
+      // this picks the first, deterministically (getAccessibleMerchantIds
+      // is already DISTINCT-ordered from a single query, not re-sorted here).
+      req.merchantId = merchantIds[0]
+      next()
+    } catch (error) {
+      next(error)
+    }
+  }
+}
+
+/**
  * `entityType` is one of OwnershipResolver's registered types ('branch' |
  * 'device' | 'membershipPlan' | 'subscription'), or the literal 'merchant' —
  * a merchant is its own owning merchant, so that one case is resolved here

@@ -58,6 +58,7 @@ function mapMerchantOverviewRow(row) {
   return {
     merchant: { id: row.id, businessName: row.business_name },
     status: row.status,
+    hasPendingOwnerInvite: row.has_pending_owner_invite,
     branchCount: row.branch_count,
     deviceCount: row.device_count,
     staffCount: row.staff_count,
@@ -345,7 +346,14 @@ export class PlatformRepository {
            SELECT COUNT(*)::int FROM merchant_staff ms
            WHERE ms.merchant_id = m.id AND ms.status = 'active' AND ms.deleted_at IS NULL
          ) AS staff_count,
-         (SELECT COUNT(*)::int FROM membership_plans mp WHERE mp.merchant_id = m.id AND mp.deleted_at IS NULL) AS membership_plan_count
+         (SELECT COUNT(*)::int FROM membership_plans mp WHERE mp.merchant_id = m.id AND mp.deleted_at IS NULL) AS membership_plan_count,
+         (
+           EXISTS (
+             SELECT 1 FROM merchant_invitations mi
+             JOIN roles r ON r.id = mi.role_id AND r.deleted_at IS NULL
+             WHERE mi.merchant_id = m.id AND mi.status = 'pending' AND r.name = 'merchant-owner'
+           )
+         ) AS has_pending_owner_invite
        FROM merchants m
        WHERE ${MERCHANT_OVERVIEW_WHERE}
        ORDER BY ${sortColumn} ${sortOrder}

@@ -8,9 +8,11 @@ import { getPool } from '../../database/connection.js'
  * Global (not merchant-scoped) role grants — see migration 0021. Used for
  * roles like Platform Admin that apply platform-wide, not to any single
  * merchant. Merchant-scoped roles live in merchant_staff instead (see
- * ../merchantStaff/merchantStaff.repository.js). Read-only here: granting a
- * platform role is an operator action, not an API surface this phase
- * exposes.
+ * ../merchantStaff/merchantStaff.repository.js). Mostly read-only: granting
+ * a platform role is an operator action, not an API surface this phase
+ * exposes — grantRole() below is the one deliberate exception, used only
+ * by the Development Bootstrap module (src/bootstrap/platformAdminBootstrap.js)
+ * at startup, never by an HTTP route.
  */
 
 export class UserRoleRepository {
@@ -30,6 +32,22 @@ export class UserRoleRepository {
     )
 
     return result.rows.map((row) => row.name)
+  }
+
+  /**
+   * Idempotent by construction (ON CONFLICT DO NOTHING against the
+   * (user_id, role_id) primary key, see migration 0021) — mirrors
+   * role.repository.js's grantPermission exactly. Granting the same role
+   * twice is not an error; it's what makes the bootstrap procedure safe to
+   * run on every server restart.
+   */
+  async grantRole(userId, roleId, client = getPool()) {
+    await client.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
+      userId,
+      roleId,
+    ])
+
+    return { userId, roleId }
   }
 }
 

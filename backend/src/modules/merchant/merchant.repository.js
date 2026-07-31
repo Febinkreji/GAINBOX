@@ -4,17 +4,27 @@ import { getPool } from '../../database/connection.js'
  * @typedef {object} Merchant
  * @property {string} id
  * @property {string} businessName
+ * @property {string|null} legalName
  * @property {string} businessType
  * @property {string} status - "pending" | "active" | "suspended"
  * @property {string|null} contactEmail
  * @property {string|null} contactPhone
+ * @property {string|null} address
+ * @property {string|null} timezone
+ * @property {string} currency - ISO 4217 code
+ * @property {string|null} country
+ * @property {string|null} corporateId - business registration number, required by Surfboard's Create Merchant API
  * @property {string|null} createdBy
  * @property {string|null} updatedBy
  * @property {string} createdAt
  * @property {string} updatedAt
  *
  * No `surfboardMerchantId` column by design — see provider_links
- * (migration 0016) and merchant.providers.js.
+ * (migration 0016) and merchant.providers.js. legalName/address/timezone/
+ * currency/country were added for Merchant Onboarding (migration 0024).
+ * corporateId was added for Surfboard Merchant Creation (migration 0029) —
+ * no format validation here, since the required format varies by country
+ * and Surfboard itself validates it on their side.
  */
 
 const SORT_COLUMNS = {
@@ -36,8 +46,8 @@ const LIST_WHERE_CLAUSE = `
 `
 
 const SELECT_COLUMNS = `
-  id, business_name, business_type, status, contact_email, contact_phone,
-  created_by, updated_by, created_at, updated_at
+  id, business_name, legal_name, business_type, status, contact_email, contact_phone,
+  address, timezone, currency, country, corporate_id, created_by, updated_by, created_at, updated_at
 `
 
 function mapRow(row) {
@@ -46,10 +56,16 @@ function mapRow(row) {
   return {
     id: row.id,
     businessName: row.business_name,
+    legalName: row.legal_name,
     businessType: row.business_type,
     status: row.status,
     contactEmail: row.contact_email,
     contactPhone: row.contact_phone,
+    address: row.address,
+    timezone: row.timezone,
+    currency: row.currency,
+    country: row.country,
+    corporateId: row.corporate_id,
     createdBy: row.created_by,
     updatedBy: row.updated_by,
     createdAt: row.created_at,
@@ -94,10 +110,22 @@ export class MerchantRepository {
 
   async create(data, client = getPool()) {
     const result = await client.query(
-      `INSERT INTO merchants (business_name, business_type, contact_email, contact_phone, created_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO merchants (business_name, legal_name, business_type, contact_email, contact_phone, address, timezone, currency, country, corporate_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'INR'), $9, $10, $11)
        RETURNING ${SELECT_COLUMNS}`,
-      [data.businessName, data.businessType, data.contactEmail ?? null, data.contactPhone ?? null, data.createdBy ?? null],
+      [
+        data.businessName,
+        data.legalName ?? null,
+        data.businessType,
+        data.contactEmail ?? null,
+        data.contactPhone ?? null,
+        data.address ?? null,
+        data.timezone ?? null,
+        data.currency ?? null,
+        data.country ?? null,
+        data.corporateId ?? null,
+        data.createdBy ?? null,
+      ],
     )
 
     return mapRow(result.rows[0])
@@ -106,10 +134,16 @@ export class MerchantRepository {
   async update(id, data, client = getPool()) {
     const fieldMap = {
       businessName: 'business_name',
+      legalName: 'legal_name',
       businessType: 'business_type',
       status: 'status',
       contactEmail: 'contact_email',
       contactPhone: 'contact_phone',
+      address: 'address',
+      timezone: 'timezone',
+      currency: 'currency',
+      country: 'country',
+      corporateId: 'corporate_id',
       updatedBy: 'updated_by',
     }
 

@@ -20,7 +20,13 @@ export function createApp() {
 
   app.use(helmet())
   app.use(cors({ origin: env.CORS_ORIGIN.split(',').map((origin) => origin.trim()) }))
-  app.use(express.json())
+  // `verify` stashes the exact raw bytes on `req.rawBody` before JSON-parsing
+  // mutates anything — needed only by the Surfboard webhook's HMAC-SHA512
+  // signature check (see modules/webhooks/surfboardWebhookSignature.js),
+  // since re-serializing the parsed body could produce different bytes than
+  // what Surfboard actually signed. Harmless for every other route: it's an
+  // extra unused property on `req`, not a behavior change.
+  app.use(express.json({ verify: (req, _res, buf) => { req.rawBody = buf } }))
   app.use(requestLogger)
 
   // Unversioned health check for load balancers / uptime monitors.

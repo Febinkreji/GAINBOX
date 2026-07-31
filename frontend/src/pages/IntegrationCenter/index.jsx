@@ -69,30 +69,30 @@ export default function IntegrationCenter() {
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {SUMMARY_STATS.map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-4">
+          <div key={stat.label} className="rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-100/40 dark:bg-neutral-900/40 p-4">
             <p className="text-xs text-neutral-500">{stat.label}</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums text-neutral-50">{stat.value}</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums text-neutral-950 dark:text-neutral-50">{stat.value}</p>
           </div>
         ))}
       </div>
 
       <div className="space-y-6">
         {GROUPS.map((group) => (
-          <div key={group.service} className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-900/40">
-            <div className="flex items-center justify-between gap-3 border-b border-neutral-800/80 px-5 py-3.5">
-              <h2 className="text-sm font-semibold text-neutral-100">{formatServiceName(group.service)}</h2>
-              <span className="rounded-md bg-neutral-800 px-2 py-1 font-mono text-[11px] text-neutral-400">
+          <div key={group.service} className="overflow-hidden rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-100/40 dark:bg-neutral-900/40">
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-200/80 dark:border-neutral-800/80 px-5 py-3.5">
+              <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{formatServiceName(group.service)}</h2>
+              <span className="rounded-md bg-neutral-100 dark:bg-neutral-800 px-2 py-1 font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
                 src/services/{group.service}.js
               </span>
             </div>
-            <ul className="divide-y divide-neutral-900">
+            <ul className="divide-y divide-neutral-100 dark:divide-neutral-900">
               {group.capabilities.map((capability) => (
                 <li
                   key={capability.key}
                   className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-neutral-200">{capability.label}</p>
+                    <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{capability.label}</p>
                     <p className="mt-0.5 text-xs text-neutral-500">{capability.description}</p>
                   </div>
                   <Badge tone={STATUS_TONE[capability.status]} className="shrink-0">

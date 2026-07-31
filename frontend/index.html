@@ -5,6 +5,27 @@
     <link rel="icon" type="image/svg+xml" href="/gainbox-favicon-16.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GainBox</title>
+    <script>
+      // Runs before the stylesheet/app bundle load, so the correct theme
+      // class is on <html> for the very first paint — no flash of the
+      // wrong theme. Mirrors src/utils/theme.js's resolveTheme() by hand;
+      // it can't import that module since ES module scripts are deferred
+      // until after first paint, which would defeat the point.
+      (function () {
+        try {
+          var stored = localStorage.getItem('gainbox-theme')
+          var theme = ['light', 'dark', 'system'].indexOf(stored) !== -1 ? stored : 'system'
+          var resolved =
+            theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme
+          if (resolved === 'dark') {
+            document.documentElement.classList.add('dark')
+          }
+        } catch (error) {
+          // Storage/matchMedia unavailable — fall back to light, same as
+          // the default `system` resolution would on an unknown OS pref.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

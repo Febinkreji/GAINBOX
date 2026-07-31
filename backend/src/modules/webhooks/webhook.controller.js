@@ -5,6 +5,7 @@ import { webhookService } from './webhook.service.js'
 export const webhookController = {
   receiveSurfboardWebhook: asyncHandler(async (req, res) => {
     await webhookService.logSurfboardReceipt(req.body, req.headers)
-    ApiResponse.send(res, { statusCode: 202, message: 'Webhook received' })
+    await webhookService.handleSurfboardWebhook(req.body)
+    ApiResponse.send(res, { statusCode: 200, message: 'Webhook received' })
   }),
 }

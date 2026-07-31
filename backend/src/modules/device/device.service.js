@@ -1,6 +1,7 @@
 import { deviceRepository } from './device.repository.js'
 import { branchRepository } from '../branch/branch.repository.js'
 import { deviceProvider } from './device.providers.js'
+import { providerLinkService } from '../providerLink/providerLink.service.js'
 import { auditService } from '../audit/audit.service.js'
 import { outboxService } from '../outbox/outbox.service.js'
 import { withTransaction } from '../../database/connection.js'
@@ -99,14 +100,33 @@ export const deviceService = {
     })
 
     try {
-      // Placeholder arg: once provider_links is populated, this should
-      // resolve the branch's real Surfboard external store id first.
-      // Passing the GainBox branchId for now is enough to prove the
-      // port/adapter wiring, since the adapter throws regardless of its
-      // arguments — same approach as branch.service.js's storeProvider call.
-      await deviceProvider.registerDevice(device.branchId, device)
+      // Device Registration is scoped under Surfboard's own merchant AND
+      // store ids (/merchants/{merchantId}/stores/{storeId}/devices) —
+      // neither is GainBox's own id. Both mappings live in provider_links,
+      // same Duplicate-Prevention-style check branch.service.js already
+      // does for its own merchant link — skipped (logged) if either is
+      // missing, rather than sent with a meaningless id.
+      const merchantLink = await providerLinkService.checkExistingMapping('merchant', branch.merchantId, 'surfboard')
+      const storeLink = await providerLinkService.checkExistingMapping('branch', branch.id, 'surfboard')
+
+      if (!merchantLink || !storeLink) {
+        logger.warn(
+          { deviceId: device.id, branchId: branch.id, hasMerchantLink: Boolean(merchantLink), hasStoreLink: Boolean(storeLink) },
+          'Surfboard device sync skipped — branch has no Surfboard store mapping yet',
+        )
+      } else {
+        const result = await deviceProvider.registerDevice(merchantLink.externalId, storeLink.externalId, device)
+
+        await providerLinkService.createLink({
+          entityType: 'device',
+          entityId: device.id,
+          provider: 'surfboard',
+          externalId: result.externalId,
+          metadata: result.metadata,
+        })
+      }
     } catch (error) {
-      logger.warn({ err: error, deviceId: device.id }, 'Surfboard device sync is not implemented yet')
+      logger.warn({ err: error, deviceId: device.id }, 'Surfboard device sync failed')
     }
 
     return device

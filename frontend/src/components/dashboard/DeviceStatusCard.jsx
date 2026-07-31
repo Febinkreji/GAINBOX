@@ -32,13 +32,13 @@ export default function DeviceStatusCard({ healthyPercent, breakdown, loading = 
         <div className="flex items-center gap-6">
           <div className="relative flex h-28 w-28 shrink-0 items-center justify-center">
             <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
-              <circle cx="50" cy="50" r={RADIUS} fill="none" className="stroke-neutral-800" strokeWidth="8" />
+              <circle cx="50" cy="50" r={RADIUS} fill="none" className="stroke-neutral-200 dark:stroke-neutral-800" strokeWidth="8" />
               <circle
                 cx="50"
                 cy="50"
                 r={RADIUS}
                 fill="none"
-                className="stroke-emerald-400"
+                className="stroke-emerald-500 dark:stroke-emerald-400"
                 strokeWidth="8"
                 strokeLinecap="round"
                 strokeDasharray={`${dashLength} ${CIRCUMFERENCE - dashLength}`}
@@ -46,7 +46,7 @@ export default function DeviceStatusCard({ healthyPercent, breakdown, loading = 
               />
             </svg>
             <div className="absolute flex flex-col items-center">
-              <span className="text-xl font-semibold text-neutral-50">{healthyPercent}%</span>
+              <span className="text-xl font-semibold text-neutral-950 dark:text-neutral-50">{healthyPercent}%</span>
               <span className="text-[11px] text-neutral-500">Healthy</span>
             </div>
           </div>
@@ -54,7 +54,7 @@ export default function DeviceStatusCard({ healthyPercent, breakdown, loading = 
           <ul className="flex-1 space-y-2.5">
             {breakdown.map((item) => (
               <li key={item.label} className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2 text-neutral-300">
+                <span className="flex items-center gap-2 text-neutral-600 dark:text-neutral-300">
                   <span className="relative flex h-2 w-2 shrink-0">
                     {item.live && (
                       <span
@@ -68,7 +68,7 @@ export default function DeviceStatusCard({ healthyPercent, breakdown, loading = 
                   </span>
                   {item.label}
                 </span>
-                <span className="font-medium tabular-nums text-neutral-100">{item.count}</span>
+                <span className="font-medium tabular-nums text-neutral-900 dark:text-neutral-100">{item.count}</span>
               </li>
             ))}
           </ul>

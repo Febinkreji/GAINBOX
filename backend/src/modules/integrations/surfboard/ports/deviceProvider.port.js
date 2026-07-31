@@ -5,7 +5,7 @@
  * Configure Branding, Configure Tips.
  *
  * @typedef {object} DeviceProviderPort
- * @property {(storeExternalId: string, device: object) => Promise<{ externalId: string }>} registerDevice
+ * @property {(merchantExternalId: string, storeExternalId: string, device: object) => Promise<{ externalId: string }>} registerDevice
  * @property {(externalId: string, targetStoreExternalId: string) => Promise<void>} reassignDevice
  * @property {(externalId: string) => Promise<void>} deactivateDevice
  * @property {(externalId: string, branding: object) => Promise<void>} configureBranding

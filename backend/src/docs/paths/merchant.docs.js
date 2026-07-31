@@ -74,6 +74,11 @@
  * /merchants/{id}:
  *   get:
  *     summary: Get a merchant by id
+ *     deprecated: true
+ *     description: >
+ *       **Deprecated** — use `GET /merchant/profile` instead, which derives
+ *       the merchant from the authenticated user and needs no id. Kept for
+ *       backward compatibility; not removed.
  *     tags: [Merchants]
  *     security:
  *       - bearerAuth: []
@@ -161,6 +166,11 @@
  * /merchants/{id}:
  *   patch:
  *     summary: Update a merchant
+ *     deprecated: true
+ *     description: >
+ *       **Deprecated** — use `PATCH /merchant/profile` instead, which
+ *       derives the merchant from the authenticated user and needs no id.
+ *       Kept for backward compatibility; not removed.
  *     tags: [Merchants]
  *     security:
  *       - bearerAuth: []

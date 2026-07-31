@@ -55,6 +55,38 @@ export class UserRepository {
     return mapRow(result.rows[0])
   }
 
+  /**
+   * Merchant Onboarding's "does this owner already have an account"
+   * check — email is CITEXT (case-insensitive), matching how Identity
+   * Sync's own uniqueness guarantee already works.
+   */
+  async findByEmail(email, client = getPool()) {
+    const result = await client.query(
+      `SELECT ${SELECT_COLUMNS} FROM users WHERE email = $1 AND deleted_at IS NULL`,
+      [email],
+    )
+
+    return mapRow(result.rows[0])
+  }
+
+  /**
+   * Development Bootstrap support (see
+   * src/bootstrap/platformAdminBootstrap.js) — finds a placeholder user row
+   * created for a known email before that person has ever signed in
+   * (firebase_uid IS NULL, see migration 0026). Identity Sync calls this
+   * only after findByFirebaseUid has already missed, to decide whether to
+   * link this sign-in to an existing unclaimed row instead of creating a
+   * new one — see identitySync.service.js's "claim" branch.
+   */
+  async findUnclaimedByEmail(email, client = getPool()) {
+    const result = await client.query(
+      `SELECT ${SELECT_COLUMNS} FROM users WHERE email = $1 AND firebase_uid IS NULL AND deleted_at IS NULL`,
+      [email],
+    )
+
+    return mapRow(result.rows[0])
+  }
+
   async create(data, client = getPool()) {
     const result = await client.query(
       `INSERT INTO users (firebase_uid, email, display_name)
@@ -71,6 +103,12 @@ export class UserRepository {
       email: 'email',
       displayName: 'display_name',
       status: 'status',
+      // Every existing caller updates email/displayName/status only —
+      // firebaseUid is added solely for identitySync.service.js's bootstrap
+      // "claim" path (linking a real Firebase UID to a placeholder row
+      // that was created with none). No other code path should ever pass
+      // this key.
+      firebaseUid: 'firebase_uid',
     }
 
     const assignments = []

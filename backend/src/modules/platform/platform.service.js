@@ -6,9 +6,28 @@ import { membershipPlanRepository } from '../membership/membershipPlan.repositor
 import { merchantStaffRepository } from '../merchantStaff/merchantStaff.repository.js'
 import { userRepository } from '../user/user.repository.js'
 import { roleRepository } from '../role/role.repository.js'
+import { invitationRepository } from '../invitation/invitation.repository.js'
 import { authorizationService } from '../authorization/authorization.service.js'
 import { NotFoundError } from '../../errors/index.js'
 import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
+
+/**
+ * A read-only, computed onboarding-progress indicator layered on top of
+ * merchants.status — it does NOT introduce a new persisted state or touch
+ * the real status column/its transitions (still exactly 'pending' |
+ * 'active' | 'suspended', still the only thing Activate/Deactivate write
+ * and audit). 'pending' is ambiguous on its own (a merchant with no owner
+ * yet looks identical to one with an owner invitation already out) — this
+ * derives the distinction platform admins actually want to see from data
+ * that already exists (a pending merchant-owner invitation), without
+ * conflating "onboarding progress" with "account access state" in one
+ * column. See merchant.service.js's activate/deactivate — unchanged.
+ */
+function deriveOnboardingStage(status, hasPendingOwnerInvite) {
+  if (status === 'suspended') return 'suspended'
+  if (status === 'active') return 'active'
+  return hasPendingOwnerInvite ? 'invited' : 'draft'
+}
 
 // Merchant/User Details return every related row for one entity — a
 // details view, not itself paginated. This is a pragmatic "effectively
@@ -92,7 +111,10 @@ export const platformService = {
     ])
 
     return {
-      items,
+      items: items.map(({ hasPendingOwnerInvite, ...item }) => ({
+        ...item,
+        onboardingStage: deriveOnboardingStage(item.status, hasPendingOwnerInvite),
+      })),
       meta: buildPaginationMeta({ page: pagination.page, pageSize: pagination.pageSize, total }),
     }
   },
@@ -112,14 +134,17 @@ export const platformService = {
       throw new NotFoundError('Merchant not found')
     }
 
-    const [branches, devices, membershipPlans, merchantStaff] = await Promise.all([
+    const [branches, devices, membershipPlans, merchantStaff, pendingOwnerInviteCount] = await Promise.all([
       branchRepository.findAll({ merchantId }, DETAIL_LIST_PAGE),
       deviceRepository.findAll({ merchantIds: [merchantId] }, DETAIL_LIST_PAGE),
       membershipPlanRepository.findAll({ merchantId }, DETAIL_LIST_PAGE),
       merchantStaffRepository.findRosterForMerchant(merchantId),
+      invitationRepository.count({ merchantId, status: 'pending', role: 'merchant-owner' }),
     ])
 
-    return { merchant, branches, devices, membershipPlans, merchantStaff }
+    const onboardingStage = deriveOnboardingStage(merchant.status, pendingOwnerInviteCount > 0)
+
+    return { merchant, onboardingStage, branches, devices, membershipPlans, merchantStaff }
   },
 
   async listUserOverview(query) {

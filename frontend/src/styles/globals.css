@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/*
+ * Class-based dark mode (see context/ThemeProvider.jsx) — ThemeProvider
+ * toggles a `.dark` class on <html> instead of relying on the
+ * prefers-color-scheme media query directly, since "system" is only one of
+ * three user-selectable states (the other two are explicit overrides that
+ * must win regardless of OS setting). Every dark: utility below resolves
+ * against that class, not the media query.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-brand-400: var(--color-violet-400);
   --color-brand-500: var(--color-violet-500);
@@ -9,15 +19,19 @@
 
 @layer base {
   html {
+    color-scheme: light;
+  }
+
+  html.dark {
     color-scheme: dark;
   }
 
   body {
-    @apply bg-neutral-950 text-neutral-200 antialiased;
+    @apply bg-white text-neutral-800 antialiased dark:bg-neutral-950 dark:text-neutral-200;
   }
 
   ::selection {
-    @apply bg-brand-500/30 text-white;
+    @apply bg-brand-500/30 text-neutral-900 dark:text-white;
   }
 }
 
@@ -51,6 +65,10 @@
   .skeleton-shimmer {
     position: relative;
     overflow: hidden;
+    background-color: var(--color-neutral-200);
+  }
+
+  .dark .skeleton-shimmer {
     background-color: var(--color-neutral-800);
   }
 
@@ -84,7 +102,7 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-neutral-800;
+    @apply rounded-full bg-neutral-300 dark:bg-neutral-800;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {

@@ -1,6 +1,7 @@
 import { branchRepository } from './branch.repository.js'
 import { merchantRepository } from '../merchant/merchant.repository.js'
 import { storeProvider } from './branch.providers.js'
+import { providerLinkService } from '../providerLink/providerLink.service.js'
 import { auditService } from '../audit/audit.service.js'
 import { outboxService } from '../outbox/outbox.service.js'
 import { withTransaction } from '../../database/connection.js'
@@ -88,13 +89,33 @@ export const branchService = {
     })
 
     try {
-      // Placeholder arg: once provider_links is populated, this should
-      // resolve the merchant's real Surfboard external id first. Passing
-      // the GainBox merchantId for now is enough to prove the port/adapter
-      // wiring, since the adapter throws regardless of its arguments.
-      await storeProvider.createStore(branch.merchantId, branch)
+      // Store Capabilities is scoped under Surfboard's own merchant id
+      // (/partners/{partnerId}/merchants/{merchantExternalId}/stores) — not
+      // GainBox's merchant.id. That mapping lives in provider_links,
+      // written once Merchant Creation's own success response is
+      // confirmed (see surfboardMerchantAdapter.js) — until then, no
+      // merchant has one yet, so this is skipped rather than sent with a
+      // meaningless id.
+      const merchantLink = await providerLinkService.checkExistingMapping('merchant', branch.merchantId, 'surfboard')
+
+      if (!merchantLink) {
+        logger.warn(
+          { branchId: branch.id, merchantId: branch.merchantId },
+          'Surfboard store sync skipped — merchant has no Surfboard mapping yet',
+        )
+      } else {
+        const result = await storeProvider.createStore(merchantLink.externalId, branch)
+
+        await providerLinkService.createLink({
+          entityType: 'branch',
+          entityId: branch.id,
+          provider: 'surfboard',
+          externalId: result.externalId,
+          metadata: result.metadata,
+        })
+      }
     } catch (error) {
-      logger.warn({ err: error, branchId: branch.id }, 'Surfboard store sync is not implemented yet')
+      logger.warn({ err: error, branchId: branch.id }, 'Surfboard store sync failed')
     }
 
     return branch

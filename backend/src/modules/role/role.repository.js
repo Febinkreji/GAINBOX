@@ -42,6 +42,18 @@ export class RoleRepository extends BaseRepository {
   }
 
   /**
+   * Looks up a role by its name — Merchant Onboarding needs the
+   * merchant-owner role's id to write merchant_staff/merchant_invitations
+   * rows; role names are the stable, human-readable identifier this
+   * codebase already uses everywhere else (seed data, requireRole(), ...).
+   */
+  async findByName(name, client = getPool()) {
+    const result = await client.query('SELECT id, name FROM roles WHERE name = $1 AND deleted_at IS NULL', [name])
+
+    return result.rows[0] ?? null
+  }
+
+  /**
    * Distinct permission names granted by any of `roleIds` — the "what can
    * this set of roles actually do" view Platform Control Center's User
    * Details needs. Same role_permissions join as `hasPermission`, just

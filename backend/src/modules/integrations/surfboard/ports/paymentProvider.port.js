@@ -9,16 +9,20 @@
  * Token (implicitly, as the auth mechanism behind every call below).
  *
  * @typedef {object} PaymentProviderPort
- * @property {(payment: object) => Promise<{ externalId: string, status: string }>} createPayment
+ * @property {(merchantExternalId: string, terminalExternalId: string, payment: object) => Promise<{ externalId: string, paymentId: string, status: string, metadata: object }>} createPayment
+ * @property {(merchantExternalId: string, orderExternalId: string) => Promise<{ orderStatus: string, payments: Array<{ paymentId: string, paymentStatus: string, paymentMethod: string, amount: number }>, paymentIds: string[] }>} getPaymentStatus
  * @property {(externalId: string, amount?: number) => Promise<void>} refundPayment
- * @property {(externalId: string) => Promise<void>} capturePayment
- * @property {(externalId: string) => Promise<void>} cancelPayment
+ * @property {(paymentExternalId: string, amount?: number) => Promise<{ status: string, message: string }>} capturePayment
+ * @property {(paymentExternalId: string) => Promise<{ status: string, paymentStatus: string, message: string }>} cancelPayment
+ * @property {(merchantExternalId: string, paymentExternalId: string) => Promise<{ status: string, voidStatus: string, message: string }>} voidPayment
  * @property {(externalId: string) => Promise<object>} getReceipt
  */
 export const PAYMENT_PROVIDER_PORT_SHAPE = [
   'createPayment',
+  'getPaymentStatus',
   'refundPayment',
   'capturePayment',
   'cancelPayment',
+  'voidPayment',
   'getReceipt',
 ]
