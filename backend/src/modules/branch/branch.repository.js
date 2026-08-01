@@ -10,6 +10,8 @@ import { getPool } from '../../database/connection.js'
  * @property {string|null} state
  * @property {string|null} country
  * @property {string|null} postalCode
+ * @property {string|null} phoneCode - international dialing code, required by Surfboard's Create Store API
+ * @property {string|null} phoneNumber - required by Surfboard's Create Store API
  * @property {string} status - "active" | "inactive"
  * @property {string|null} createdBy
  * @property {string|null} updatedBy
@@ -17,7 +19,10 @@ import { getPool } from '../../database/connection.js'
  * @property {string} updatedAt
  *
  * Surfboard calls this concept a "Store" — the rename happens at the
- * integration boundary (surfboardStoreAdapter), not here.
+ * integration boundary (surfboardStoreAdapter), not here. phoneCode/
+ * phoneNumber were added for Surfboard Store Capabilities (migration 0030)
+ * — no format validation here, Surfboard validates on its own side, same
+ * pattern as merchants.corporate_id.
  */
 
 const SORT_COLUMNS = {
@@ -44,7 +49,7 @@ const LIST_WHERE_CLAUSE = `
 
 const SELECT_COLUMNS = `
   id, merchant_id, name, address, city, state, country, postal_code,
-  status, created_by, updated_by, created_at, updated_at
+  phone_code, phone_number, status, created_by, updated_by, created_at, updated_at
 `
 
 function mapRow(row) {
@@ -59,6 +64,8 @@ function mapRow(row) {
     state: row.state,
     country: row.country,
     postalCode: row.postal_code,
+    phoneCode: row.phone_code,
+    phoneNumber: row.phone_number,
     status: row.status,
     createdBy: row.created_by,
     updatedBy: row.updated_by,
@@ -111,8 +118,8 @@ export class BranchRepository {
 
   async create(data, client = getPool()) {
     const result = await client.query(
-      `INSERT INTO branches (merchant_id, name, address, city, state, country, postal_code, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO branches (merchant_id, name, address, city, state, country, postal_code, phone_code, phone_number, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING ${SELECT_COLUMNS}`,
       [
         data.merchantId,
@@ -122,6 +129,8 @@ export class BranchRepository {
         data.state ?? null,
         data.country ?? null,
         data.postalCode ?? null,
+        data.phoneCode ?? null,
+        data.phoneNumber ?? null,
         data.createdBy ?? null,
       ],
     )
@@ -137,6 +146,8 @@ export class BranchRepository {
       state: 'state',
       country: 'country',
       postalCode: 'postal_code',
+      phoneCode: 'phone_code',
+      phoneNumber: 'phone_number',
       status: 'status',
       updatedBy: 'updated_by',
     }

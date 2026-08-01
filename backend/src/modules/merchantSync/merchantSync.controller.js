@@ -17,8 +17,14 @@ export const merchantSyncController = {
     ApiResponse.send(res, { data: result, message: 'Merchant sync attempted' })
   }),
 
+  // Phase 3 — Payment Infrastructure. `req.merchantId` is set by
+  // requireMerchantContext() (see merchantContext.routes.js's new
+  // /merchant/payment-status route); `req.params.merchantId` is the legacy
+  // platform-admin route's path param. Same `resolveMerchantId` pattern as
+  // merchant.controller.js — one controller serves both routes, no
+  // duplicated logic.
   getStatus: asyncHandler(async (req, res) => {
-    const status = await merchantSyncService.getStatus(req.params.merchantId)
+    const status = await merchantSyncService.getStatus(req.merchantId ?? req.params.merchantId)
     ApiResponse.send(res, { data: status })
   }),
 

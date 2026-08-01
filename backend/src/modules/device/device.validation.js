@@ -14,6 +14,11 @@ export const createDeviceSchema = z.object({
   label: z.string().trim().min(1).max(255),
   brandingConfig: jsonObjectSchema.optional(),
   tipConfig: jsonObjectSchema.optional(),
+  // Required by Surfboard's Register Terminal API, but optional here —
+  // GainBox lets a device exist without one; Surfboard sync only fails
+  // once actually attempted, same pattern as branch.validation.js's
+  // phoneCode/phoneNumber.
+  registrationIdentifier: z.string().trim().min(1).max(50).optional(),
 })
 
 export const updateDeviceSchema = z
@@ -22,6 +27,7 @@ export const updateDeviceSchema = z
     status: z.enum(STATUSES).optional(),
     brandingConfig: jsonObjectSchema.optional(),
     tipConfig: jsonObjectSchema.optional(),
+    registrationIdentifier: z.string().trim().min(1).max(50).optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: 'At least one field must be provided' })
 

@@ -138,10 +138,14 @@ router.get(
  *     description: >
  *       A device always belongs to an existing branch — `branchId` must
  *       reference a real, non-deleted branch or the request fails with
- *       404. After creation, GainBox calls the Surfboard device provider
- *       placeholder (`deviceProvider.registerDevice`), which currently
- *       throws NotImplementedError; that failure is logged, not surfaced to
- *       the caller — device creation still succeeds.
+ *       404. After creation, GainBox attempts a Surfboard Terminal sync
+ *       (`deviceSyncService.startSync` — Phase 2). This requires the
+ *       branch to already have a Surfboard Store and this device to have
+ *       `registrationIdentifier` set; if either is missing, the sync fails
+ *       and is logged, not surfaced to the caller — device creation still
+ *       succeeds either way. See
+ *       `GET /integrations/surfboard/devices/{id}/status` and
+ *       `POST .../sync` (Refresh Sync) to retry once ready.
  *     tags: [Devices]
  *     security:
  *       - bearerAuth: []
@@ -163,6 +167,7 @@ router.get(
  *                 type: object
  *                 additionalProperties: true
  *                 nullable: true
+ *               registrationIdentifier: { type: string, nullable: true, description: Required for Surfboard Terminal sync (Phase 2) — omit to leave sync blocked until set. }
  *     responses:
  *       201:
  *         description: Device registered

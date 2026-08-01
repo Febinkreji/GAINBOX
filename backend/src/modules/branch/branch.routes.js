@@ -139,10 +139,14 @@ router.get(
  *     description: >
  *       A branch always belongs to an existing merchant — `merchantId` must
  *       reference a real, non-deleted merchant or the request fails with
- *       404. After creation, GainBox calls the Surfboard store provider
- *       placeholder (`storeProvider.createStore`), which currently throws
- *       NotImplementedError; that failure is logged, not surfaced to the
- *       caller — branch creation still succeeds.
+ *       404. After creation, GainBox attempts a Surfboard Store sync
+ *       (`branchSyncService.startSync` — Phase 2). This requires the
+ *       merchant to have already reached MERCHANT_CREATED and this branch
+ *       to have `phoneCode`/`phoneNumber` set; if either is missing, the
+ *       sync fails and is logged, not surfaced to the caller — branch
+ *       creation still succeeds either way. See
+ *       `GET /integrations/surfboard/branches/{id}/status` and
+ *       `POST .../sync` (Refresh Sync) to retry once ready.
  *     tags: [Branches]
  *     security:
  *       - bearerAuth: []
@@ -161,6 +165,8 @@ router.get(
  *               state: { type: string, nullable: true, example: Tamil Nadu }
  *               country: { type: string, nullable: true, example: India }
  *               postalCode: { type: string, nullable: true, example: '600040' }
+ *               phoneCode: { type: string, nullable: true, example: '46', description: Required for Surfboard Store sync (Phase 2) — omit to leave sync blocked until set. }
+ *               phoneNumber: { type: string, nullable: true, example: '701234567', description: Required for Surfboard Store sync (Phase 2) — omit to leave sync blocked until set. }
  *     responses:
  *       201:
  *         description: Branch created

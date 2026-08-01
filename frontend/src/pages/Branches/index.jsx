@@ -14,7 +14,8 @@ import Select from '@/components/forms/Select'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/useToast'
 import { useDisclosure } from '@/hooks/useDisclosure'
-import { listBranches, createBranch, updateBranch, deleteBranch } from '@/services/storeService'
+import { listBranches, createBranch, updateBranch, deleteBranch, getBranchSyncStatus } from '@/services/storeService'
+import { ENTITY_SYNC_TONE, ENTITY_SYNC_LABEL, deriveEntitySyncState } from '@/utils/surfboardSyncStatus'
 
 const STATUS_TONE = { active: 'success', inactive: 'neutral' }
 const PAGE_SIZE = 10
@@ -29,6 +30,14 @@ export default function Branches() {
   const [state, setState] = useState({ status: 'loading', items: [], meta: null })
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+
+  // Phase 2 — Store & Device Integration. Read-only Surfboard sync badge
+  // per row, keyed by branch id — no admin/sync action here (that stays
+  // Platform Admin only, see MerchantDetails/index.jsx). Independent of
+  // the main `load()` below via Promise.allSettled, same reasoning as
+  // MerchantDetails' loadEntitySyncStatuses(): one branch's status fetch
+  // failing shouldn't block the rest of the page or hide another row's.
+  const [syncMap, setSyncMap] = useState({})
 
   const [formValues, setFormValues] = useState(EMPTY_FORM)
   const [formErrors, setFormErrors] = useState({})
@@ -52,6 +61,13 @@ export default function Branches() {
         sortOrder: 'desc',
       })
       setState({ status: 'ready', items: res.data, meta: res.meta })
+
+      const results = await Promise.allSettled(res.data.map((branch) => getBranchSyncStatus(branch.id)))
+      setSyncMap(
+        Object.fromEntries(
+          res.data.map((branch, index) => [branch.id, results[index].status === 'fulfilled' ? results[index].value : null]),
+        ),
+      )
     } catch (error) {
       setState({ status: 'error', items: [], meta: null })
       toast.error(error.message)
@@ -148,6 +164,14 @@ export default function Branches() {
       key: 'status',
       header: 'Status',
       render: (row) => <Badge tone={STATUS_TONE[row.status] ?? 'neutral'}>{row.status}</Badge>,
+    },
+    {
+      key: 'paymentSync',
+      header: 'Payment Sync',
+      render: (row) => {
+        const syncStatus = deriveEntitySyncState(syncMap[row.id])
+        return <Badge tone={ENTITY_SYNC_TONE[syncStatus]}>{ENTITY_SYNC_LABEL[syncStatus]}</Badge>
+      },
     },
     ...(canWrite
       ? [

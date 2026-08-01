@@ -93,3 +93,26 @@ export function getMerchantSyncHistory(merchantId, params) {
     .get('/integrations/surfboard/merchants/history', { params: { merchantId, ...params } })
     .then((res) => res.data)
 }
+
+// Phase 2 — Store & Device Integration: same integration surface, one level
+// down the entity hierarchy (Branch -> Surfboard Store, Device -> Surfboard
+// Terminal). `getBranchSyncStatus`/`getDeviceSyncStatus` are also callable
+// from the Merchant Portal (ownership-gated, not platform-admin-gated on
+// the backend) — see storeService.js/deviceService.js for those read-only
+// wrappers; triggering a sync stays here, platform-admin only.
+
+export function getBranchSyncStatus(branchId) {
+  return apiClient.get(`/integrations/surfboard/branches/${branchId}/status`).then((res) => res.data.data)
+}
+
+export function triggerBranchSync(branchId) {
+  return apiClient.post(`/integrations/surfboard/branches/${branchId}/sync`).then((res) => res.data.data)
+}
+
+export function getDeviceSyncStatus(deviceId) {
+  return apiClient.get(`/integrations/surfboard/devices/${deviceId}/status`).then((res) => res.data.data)
+}
+
+export function triggerDeviceSync(deviceId) {
+  return apiClient.post(`/integrations/surfboard/devices/${deviceId}/sync`).then((res) => res.data.data)
+}

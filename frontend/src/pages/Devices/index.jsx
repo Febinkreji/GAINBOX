@@ -14,8 +14,9 @@ import Select from '@/components/forms/Select'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/useToast'
 import { useDisclosure } from '@/hooks/useDisclosure'
-import { listDevices, createDevice, updateDevice, deleteDevice } from '@/services/deviceService'
+import { listDevices, createDevice, updateDevice, deleteDevice, getDeviceSyncStatus } from '@/services/deviceService'
 import { listBranches } from '@/services/storeService'
+import { ENTITY_SYNC_TONE, ENTITY_SYNC_LABEL, deriveEntitySyncState } from '@/utils/surfboardSyncStatus'
 
 const STATUS_TONE = { active: 'success', registered: 'brand', offline: 'danger', deactivated: 'neutral' }
 const PAGE_SIZE = 10
@@ -32,6 +33,12 @@ export default function Devices() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [page, setPage] = useState(1)
+
+  // Phase 2 — Store & Device Integration. Read-only Surfboard terminal
+  // sync badge + telemetry per row, keyed by device id — no admin/sync
+  // action here (that stays Platform Admin only). Same
+  // Promise.allSettled reasoning as Branches/index.jsx.
+  const [syncMap, setSyncMap] = useState({})
 
   const [formValues, setFormValues] = useState(EMPTY_FORM)
   const [formErrors, setFormErrors] = useState({})
@@ -59,6 +66,16 @@ export default function Devices() {
       ])
       setState({ status: 'ready', items: devicesRes.data, meta: devicesRes.meta })
       setBranches(branchesRes.data)
+
+      const results = await Promise.allSettled(devicesRes.data.map((device) => getDeviceSyncStatus(device.id)))
+      setSyncMap(
+        Object.fromEntries(
+          devicesRes.data.map((device, index) => [
+            device.id,
+            results[index].status === 'fulfilled' ? results[index].value : null,
+          ]),
+        ),
+      )
     } catch (error) {
       setState({ status: 'error', items: [], meta: null })
       toast.error(error.message)
@@ -138,6 +155,32 @@ export default function Devices() {
       key: 'status',
       header: 'Status',
       render: (row) => <Badge tone={STATUS_TONE[row.status] ?? 'neutral'}>{row.status}</Badge>,
+    },
+    {
+      key: 'paymentSync',
+      header: 'Payment Sync',
+      render: (row) => {
+        const syncStatus = deriveEntitySyncState(syncMap[row.id])
+        return <Badge tone={ENTITY_SYNC_TONE[syncStatus]}>{ENTITY_SYNC_LABEL[syncStatus]}</Badge>
+      },
+    },
+    {
+      key: 'terminal',
+      header: 'Terminal',
+      // Surfboard's own telemetry (Fetch Terminal by ID), populated only
+      // once a sync has run at least once — see deviceSync.service.js's
+      // getStatus(). Falls back to an em dash, never a live Surfboard call
+      // from this read-only page.
+      render: (row) => {
+        const sync = syncMap[row.id]
+        if (!sync?.connected || sync.batteryPercentage == null) return '—'
+        return (
+          <span className="text-xs text-neutral-500">
+            {sync.batteryPercentage}% battery
+            {sync.lastAliveAt && <> · seen {new Date(sync.lastAliveAt).toLocaleString()}</>}
+          </span>
+        )
+      },
     },
     ...(canWrite
       ? [

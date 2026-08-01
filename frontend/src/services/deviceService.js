@@ -27,3 +27,10 @@ export function updateDevice(deviceId, updates) {
 export function deleteDevice(deviceId) {
   return apiClient.delete(`/devices/${deviceId}`).then((res) => res.data)
 }
+
+// Phase 2 — Store & Device Integration. Read-only, same reasoning as
+// storeService.js's getBranchSyncStatus — ownership-gated on the backend,
+// no sync/admin action here (that stays Platform Admin only).
+export function getDeviceSyncStatus(deviceId) {
+  return apiClient.get(`/integrations/surfboard/devices/${deviceId}/status`).then((res) => res.data.data)
+}

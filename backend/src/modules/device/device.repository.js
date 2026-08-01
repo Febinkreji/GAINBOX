@@ -8,6 +8,7 @@ import { getPool } from '../../database/connection.js'
  * @property {string} status - "registered" | "active" | "offline" | "deactivated"
  * @property {object|null} brandingConfig
  * @property {object|null} tipConfig
+ * @property {string|null} registrationIdentifier - required by Surfboard's Register Terminal API
  * @property {string|null} createdBy
  * @property {string|null} updatedBy
  * @property {string} createdAt
@@ -15,6 +16,9 @@ import { getPool } from '../../database/connection.js'
  *
  * A payment terminal assigned to a Branch. brandingConfig/tipConfig are
  * JSONB — Surfboard-defined shape, not fixed columns (see migration 0010).
+ * registrationIdentifier was added for Surfboard Terminal Registration
+ * (migration 0031) — the 6-digit code shown on power-on (or serial number
+ * for SurfPad/Printer), not something GainBox generates.
  */
 
 const SORT_COLUMNS = {
@@ -39,7 +43,7 @@ const LIST_WHERE_CLAUSE = `
 `
 
 const SELECT_COLUMNS = `
-  id, branch_id, label, status, branding_config, tip_config,
+  id, branch_id, label, status, branding_config, tip_config, registration_identifier,
   created_by, updated_by, created_at, updated_at
 `
 
@@ -53,6 +57,7 @@ function mapRow(row) {
     status: row.status,
     brandingConfig: row.branding_config,
     tipConfig: row.tip_config,
+    registrationIdentifier: row.registration_identifier,
     createdBy: row.created_by,
     updatedBy: row.updated_by,
     createdAt: row.created_at,
@@ -104,10 +109,17 @@ export class DeviceRepository {
 
   async create(data, client = getPool()) {
     const result = await client.query(
-      `INSERT INTO devices (branch_id, label, branding_config, tip_config, created_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO devices (branch_id, label, branding_config, tip_config, registration_identifier, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING ${SELECT_COLUMNS}`,
-      [data.branchId, data.label, data.brandingConfig ?? null, data.tipConfig ?? null, data.createdBy ?? null],
+      [
+        data.branchId,
+        data.label,
+        data.brandingConfig ?? null,
+        data.tipConfig ?? null,
+        data.registrationIdentifier ?? null,
+        data.createdBy ?? null,
+      ],
     )
 
     return mapRow(result.rows[0])
@@ -119,6 +131,7 @@ export class DeviceRepository {
       status: 'status',
       brandingConfig: 'branding_config',
       tipConfig: 'tip_config',
+      registrationIdentifier: 'registration_identifier',
       updatedBy: 'updated_by',
     }
 

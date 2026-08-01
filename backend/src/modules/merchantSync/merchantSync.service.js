@@ -3,6 +3,7 @@ import { merchantRepository } from '../merchant/merchant.repository.js'
 import { merchantProvider } from '../merchant/merchant.providers.js'
 import { merchantService } from '../merchant/merchant.service.js'
 import { providerLinkService } from '../providerLink/providerLink.service.js'
+import { unwrapProviderMetadata } from '../providerLink/providerLinkMetadata.util.js'
 import { syncHistoryRepository } from '../sync/syncHistory.repository.js'
 import { outboxRepository } from '../outbox/outbox.repository.js'
 import { NotFoundError } from '../../errors/index.js'
@@ -190,7 +191,7 @@ export const merchantSyncService = {
     // double-wrapped shape (`{ externalId, status, metadata: {...} }`).
     // Unwrapping defensively here means this read works for both without
     // needing a data migration.
-    const providerMetadata = link?.metadata?.metadata ?? link?.metadata ?? null
+    const providerMetadata = unwrapProviderMetadata(link)
 
     return {
       merchantId,
@@ -223,6 +224,20 @@ export const merchantSyncService = {
       applicationStatus: providerMetadata?.applicationStatus ?? null,
       paymentMethods: providerMetadata?.paymentMethods ?? null,
       billingPlans: providerMetadata?.billingPlans ?? null,
+      // Phase 3 — Payment Infrastructure. `enabledPaymentMethods` is the
+      // dedicated List Payment Methods result (authoritative, refreshed
+      // independently of the KYB-flow `paymentMethods` above);
+      // `settlementReports` is Surfboard's own Reporting API result — both
+      // null until the first refresh that had a real merchantId to work
+      // with (see merchant.service.js's getStatus()).
+      enabledPaymentMethods: providerMetadata?.enabledPaymentMethods ?? null,
+      settlementReports: providerMetadata?.settlementReports ?? null,
+      // Derived, not stored — purely a read-time convenience so the
+      // frontend doesn't need to re-implement this logic. 'active' means
+      // onboarding finished AND at least one payment method is live;
+      // 'incomplete' means onboarding finished but no method is active yet;
+      // 'not_configured' covers everything before MERCHANT_CREATED.
+      paymentStatus: derivePaymentStatus(providerMetadata),
       syncStatus: latest?.status ?? 'never_started',
       lastSyncAt: latest?.startedAt ?? null,
       lastSyncResult: latest?.status ?? null,
@@ -275,4 +290,22 @@ export const merchantSyncService = {
  */
 async function countPendingSyncEvents(merchantId) {
   return outboxRepository.countPendingForAggregate('merchant', merchantId, 'SurfboardMerchantSyncRequested')
+}
+
+/**
+ * Phase 3 — Payment Infrastructure. Purely derived from already-persisted
+ * metadata, never stored itself, so it can never drift from the data it
+ * reflects (same "derive, don't duplicate" rule as every other field on
+ * this DTO). Prefers the dedicated `enabledPaymentMethods` list; falls back
+ * to the KYB-flow `paymentMethods` byproduct when the former hasn't been
+ * fetched yet, so a merchant refreshed only once still gets a real answer.
+ */
+function derivePaymentStatus(providerMetadata) {
+  if (providerMetadata?.applicationStatus !== 'MERCHANT_CREATED') return 'not_configured'
+
+  const hasActiveMethod =
+    providerMetadata?.enabledPaymentMethods?.length > 0 ||
+    providerMetadata?.paymentMethods?.some((method) => method.status === 'ACTIVATED')
+
+  return hasActiveMethod ? 'active' : 'incomplete'
 }

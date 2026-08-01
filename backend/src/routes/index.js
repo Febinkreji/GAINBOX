@@ -13,6 +13,8 @@ import roleRoutes from '../modules/role/index.js'
 import notificationRoutes from '../modules/notification/index.js'
 import platformRoutes from '../modules/platform/index.js'
 import merchantSyncRoutes from '../modules/merchantSync/merchantSync.routes.js'
+import branchSyncRoutes from '../modules/branchSync/branchSync.routes.js'
+import deviceSyncRoutes from '../modules/deviceSync/deviceSync.routes.js'
 
 /**
  * Every module owns its own router; this file only aggregates and mounts
@@ -43,5 +45,9 @@ router.use('/platform', platformRoutes)
 // this is a distinct integration surface (the exact paths this sprint's
 // design specified), even though it's gated to platform-admin the same way.
 router.use('/integrations/surfboard/merchants', merchantSyncRoutes)
+// Phase 2 — Store & Device Integration: same integration surface, one
+// level down the entity hierarchy (Branch -> Store, Device -> Terminal).
+router.use('/integrations/surfboard/branches', branchSyncRoutes)
+router.use('/integrations/surfboard/devices', deviceSyncRoutes)
 
 export default router

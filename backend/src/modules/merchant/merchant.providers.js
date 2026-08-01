@@ -1,4 +1,4 @@
-import { surfboardMerchantAdapter } from '../integrations/surfboard/index.js'
+import { surfboardMerchantAdapter, surfboardPaymentConfigAdapter } from '../integrations/surfboard/index.js'
 
 /**
  * Composition point for MerchantProviderPort (see
@@ -8,3 +8,11 @@ import { surfboardMerchantAdapter } from '../integrations/surfboard/index.js'
  * one binding, not merchant.service.js.
  */
 export const merchantProvider = surfboardMerchantAdapter
+
+/**
+ * Composition point for PaymentConfigProviderPort (see
+ * integrations/surfboard/ports/paymentConfigProvider.port.js) — Phase 3.
+ * merchantSync.service.js imports `paymentConfigProvider` from here, same
+ * reasoning as `merchantProvider` above.
+ */
+export const paymentConfigProvider = surfboardPaymentConfigAdapter

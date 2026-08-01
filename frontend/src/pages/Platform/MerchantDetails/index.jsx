@@ -32,6 +32,7 @@ import Select from '@/components/forms/Select'
 import { useToast } from '@/hooks/useToast'
 import { useDisclosure } from '@/hooks/useDisclosure'
 import { ROUTES, invitationAcceptanceLink } from '@/constants/routes'
+import { ENTITY_SYNC_TONE, ENTITY_SYNC_LABEL, deriveEntitySyncState } from '@/utils/surfboardSyncStatus'
 import {
   getMerchantDetails,
   updateMerchant,
@@ -45,6 +46,10 @@ import {
   getMerchantSyncStatus,
   triggerMerchantSync,
   getMerchantSyncHistory,
+  getBranchSyncStatus,
+  triggerBranchSync,
+  getDeviceSyncStatus,
+  triggerDeviceSync,
 } from '@/services/platformService'
 
 const INVITATION_STATUS_TONE = { pending: 'brand', accepted: 'success', expired: 'neutral', revoked: 'danger' }
@@ -59,6 +64,18 @@ const SYNC_STATUS_TONE = {
   completed: 'success',
   failed: 'danger',
   skipped: 'neutral',
+}
+// Presentation-only relabeling — `skipped` reflects Duplicate Prevention
+// (a mapping already existed, so nothing needed to change), which reads to
+// an admin as "already up to date," not as something being skipped over.
+// No change to the underlying sync_history status values themselves.
+const SYNC_STATUS_LABEL = {
+  never_started: 'Never Started',
+  pending: 'Pending',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  skipped: 'Already Up-to-date',
 }
 
 // Connection Status is deliberately just these three values — distinct
@@ -111,6 +128,43 @@ const ONBOARDING_STAGE_DESCRIPTION = {
   APPLICATION_EXPIRED: 'The application expired before completion.',
 }
 
+// Phase 3 — Payment Infrastructure. Derived server-side (merchantSync
+// .service.js's derivePaymentStatus) — this is just the badge presentation.
+const PAYMENT_STATUS_TONE = { active: 'success', incomplete: 'warning', not_configured: 'neutral' }
+const PAYMENT_STATUS_LABEL = { active: 'Payments Active', incomplete: 'Payments Incomplete', not_configured: 'Not Configured' }
+
+// Presentation-only — Surfboard's raw payment-method codes, relabeled for
+// an admin audience. Falls back to the raw code for anything not listed
+// here rather than hiding it.
+const PAYMENT_METHOD_LABEL = { CARD: 'Card', CASH: 'Cash', CPOC: 'SoftPOS (CPOC)' }
+function formatPaymentMethod(method) {
+  return PAYMENT_METHOD_LABEL[method] ?? method
+}
+
+// Presentation-only. The one device-registration failure confirmed during
+// Phase 2 live sandbox testing is Surfboard's own "TM_0014: Invalid
+// registration code" — expected because the sandbox has no real terminal
+// hardware to generate a live registration code, not a bug in this
+// integration. Shown as a distinct, less alarming label than a generic
+// "Failed" so an admin doesn't mistake a known sandbox limitation for a
+// real integration problem — the underlying syncStatus/lastError are
+// unchanged.
+function isSandboxRegistrationLimitation(lastError) {
+  return typeof lastError === 'string' && /invalid registration code/i.test(lastError)
+}
+
+// Presentation-only. Surfboard's billing plan objects carry a free-text
+// `description` (the closest thing to a human title) alongside their
+// machine `id` — this composes a readable title when description is
+// missing rather than showing raw plan internals.
+function getBillingPlanTitle(plan) {
+  return (
+    plan.description ||
+    [formatPaymentMethod(plan.paymentMethod), plan.cardBrand, plan.planType].filter(Boolean).join(' · ') ||
+    'Billing Plan'
+  )
+}
+
 // Keyed by onboardingStage — see MerchantManagement/index.jsx's note.
 const STAGE_TONE = { draft: 'neutral', invited: 'warning', active: 'success', suspended: 'danger' }
 const STAFF_STATUS_TONE = { active: 'success', removed: 'neutral' }
@@ -157,6 +211,16 @@ export default function MerchantDetails() {
   const [syncState, setSyncState] = useState({ status: 'loading', sync: null, history: [] })
   const [isSyncing, setIsSyncing] = useState(false)
 
+  // Phase 2 — Store & Device Integration: per-branch/per-device Surfboard
+  // sync status, keyed by id. `null` means "fetched but this row has no
+  // sync info to show" (or the fetch failed) — distinct from "not yet
+  // fetched" (key absent), so a row's badge can render "Pending" instead
+  // of a permanent skeleton if its individual status call errors.
+  const [branchSyncMap, setBranchSyncMap] = useState({})
+  const [deviceSyncMap, setDeviceSyncMap] = useState({})
+  const [refreshingBranchId, setRefreshingBranchId] = useState(null)
+  const [refreshingDeviceId, setRefreshingDeviceId] = useState(null)
+
   const loadSyncStatus = useCallback(async () => {
     // Independent of the main merchant load — a failure here (or the
     // framework simply not having synced yet) shouldn't block the rest of
@@ -200,6 +264,34 @@ export default function MerchantDetails() {
     window.open(syncState.sync.webKybUrl, '_blank', 'noopener,noreferrer')
   }
 
+  // Independent of the main merchant load, same reasoning as
+  // loadSyncStatus() above — a per-row status fetch failing shouldn't
+  // block the rest of the page, and one branch's/device's failure
+  // shouldn't hide another's (Promise.allSettled, not Promise.all).
+  const loadEntitySyncStatuses = useCallback(async (branchList, deviceList) => {
+    const [branchResults, deviceResults] = await Promise.all([
+      Promise.allSettled(branchList.map((branch) => getBranchSyncStatus(branch.id))),
+      Promise.allSettled(deviceList.map((device) => getDeviceSyncStatus(device.id))),
+    ])
+
+    setBranchSyncMap(
+      Object.fromEntries(
+        branchList.map((branch, index) => [
+          branch.id,
+          branchResults[index].status === 'fulfilled' ? branchResults[index].value : null,
+        ]),
+      ),
+    )
+    setDeviceSyncMap(
+      Object.fromEntries(
+        deviceList.map((device, index) => [
+          device.id,
+          deviceResults[index].status === 'fulfilled' ? deviceResults[index].value : null,
+        ]),
+      ),
+    )
+  }, [])
+
   const load = useCallback(async () => {
     setState({ status: 'loading', details: null })
     try {
@@ -213,17 +305,58 @@ export default function MerchantDetails() {
       ])
       setState({ status: 'ready', details })
       setLatestInvitation(invitations.data[0] ?? null)
+      loadEntitySyncStatuses(details.branches, details.devices)
     } catch (error) {
       setState({ status: 'error', details: null })
       toast.error(error.message)
     }
-  }, [merchantId, toast])
+  }, [merchantId, toast, loadEntitySyncStatuses])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
     loadSyncStatus()
   }, [load, loadSyncStatus])
+
+  async function handleRefreshBranchSync(branchId) {
+    setRefreshingBranchId(branchId)
+    try {
+      const result = await triggerBranchSync(branchId)
+      if (result.status === 'completed') {
+        toast.success('Branch synced with Surfboard')
+      } else if (result.status === 'skipped') {
+        toast.info(result.message || 'Sync skipped — already mapped')
+      } else {
+        toast.error(result.errorMessage || 'Sync failed')
+      }
+      const status = await getBranchSyncStatus(branchId)
+      setBranchSyncMap((prev) => ({ ...prev, [branchId]: status }))
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setRefreshingBranchId(null)
+    }
+  }
+
+  async function handleRefreshDeviceSync(deviceId) {
+    setRefreshingDeviceId(deviceId)
+    try {
+      const result = await triggerDeviceSync(deviceId)
+      if (result.status === 'completed') {
+        toast.success('Device synced with Surfboard')
+      } else if (result.status === 'skipped') {
+        toast.info(result.message || 'Sync skipped — already mapped')
+      } else {
+        toast.error(result.errorMessage || 'Sync failed')
+      }
+      const status = await getDeviceSyncStatus(deviceId)
+      setDeviceSyncMap((prev) => ({ ...prev, [deviceId]: status }))
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setRefreshingDeviceId(null)
+    }
+  }
 
   function openEditModal() {
     const merchant = state.details.merchant
@@ -425,6 +558,134 @@ export default function MerchantDetails() {
     { key: 'email', header: 'Email' },
     { key: 'roleName', header: 'Role' },
     { key: 'status', header: 'Status', render: (row) => <Badge tone={STAFF_STATUS_TONE[row.status] ?? 'neutral'}>{row.status}</Badge> },
+  ]
+
+  // Phase 2 — Store & Device Integration: renders a Surfboard id (copyable)
+  // or an em dash, and a Latest Error cell — reused identically by both
+  // the branches and devices tables below.
+  function renderSurfboardId(id, label) {
+    if (!id) return '—'
+    return (
+      <span className="flex items-center gap-1.5">
+        <span className="truncate">{id}</span>
+        <button
+          type="button"
+          onClick={() => copyToClipboard(id, label)}
+          className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+          title={`Copy ${label}`}
+        >
+          <Copy size={13} />
+        </button>
+      </span>
+    )
+  }
+
+  function renderLatestError(sync) {
+    if (!sync?.lastError) return '—'
+    return (
+      <span className="block max-w-[220px] truncate text-xs text-red-600 dark:text-red-400" title={sync.lastError}>
+        {sync.lastError}
+      </span>
+    )
+  }
+
+  const branchColumns = [
+    { key: 'name', header: 'Name' },
+    { key: 'city', header: 'City', render: (row) => row.city || '—' },
+    {
+      key: 'syncStatus',
+      header: 'Sync Status',
+      render: (row) => {
+        const state = deriveEntitySyncState(branchSyncMap[row.id])
+        return <Badge tone={ENTITY_SYNC_TONE[state]}>{ENTITY_SYNC_LABEL[state]}</Badge>
+      },
+    },
+    {
+      key: 'surfboardStoreId',
+      header: 'Surfboard Store ID',
+      render: (row) => renderSurfboardId(branchSyncMap[row.id]?.surfboardStoreId, 'Store ID'),
+    },
+    { key: 'lastError', header: 'Latest Error', render: (row) => renderLatestError(branchSyncMap[row.id]) },
+    {
+      key: 'actions',
+      header: '',
+      render: (row) => (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => handleRefreshBranchSync(row.id)}
+          disabled={refreshingBranchId === row.id}
+        >
+          <RefreshCw size={13} className={refreshingBranchId === row.id ? 'animate-spin' : ''} />
+          Refresh Sync
+        </Button>
+      ),
+    },
+  ]
+
+  const deviceColumns = [
+    { key: 'label', header: 'Name' },
+    {
+      key: 'branch',
+      header: 'Branch',
+      render: (row) => branches.find((branch) => branch.id === row.branchId)?.name || '—',
+    },
+    {
+      key: 'syncStatus',
+      header: 'Sync Status',
+      render: (row) => {
+        const sync = deviceSyncMap[row.id]
+        const state = deriveEntitySyncState(sync)
+        if (state === 'failed' && isSandboxRegistrationLimitation(sync?.lastError)) {
+          return <Badge tone="warning">Registration Pending (Sandbox limitation)</Badge>
+        }
+        return <Badge tone={ENTITY_SYNC_TONE[state]}>{ENTITY_SYNC_LABEL[state]}</Badge>
+      },
+    },
+    {
+      key: 'surfboardTerminalId',
+      header: 'Surfboard Terminal ID',
+      render: (row) => renderSurfboardId(deviceSyncMap[row.id]?.surfboardTerminalId, 'Terminal ID'),
+    },
+    {
+      key: 'capabilities',
+      header: 'Capabilities',
+      // Phase 3 — Payment Infrastructure. Already fetched by deviceSync's
+      // getStatus() (Fetch Terminal by ID) — no new backend call, just
+      // presenting what's already in deviceSyncMap.
+      render: (row) => {
+        const sync = deviceSyncMap[row.id]
+        if (!sync?.terminalType && !sync?.terminalPaymentMethods?.length) return '—'
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {sync.terminalType && <Badge tone="neutral">{sync.terminalType}</Badge>}
+            {sync.terminalPaymentMethods?.map((method) => (
+              <Badge key={method} tone="brand">
+                {formatPaymentMethod(method)}
+              </Badge>
+            ))}
+          </div>
+        )
+      },
+    },
+    { key: 'lastError', header: 'Latest Error', render: (row) => renderLatestError(deviceSyncMap[row.id]) },
+    {
+      key: 'actions',
+      header: '',
+      render: (row) => (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => handleRefreshDeviceSync(row.id)}
+          disabled={refreshingDeviceId === row.id}
+        >
+          <RefreshCw size={13} className={refreshingDeviceId === row.id ? 'animate-spin' : ''} />
+          Refresh Sync
+        </Button>
+      ),
+    },
   ]
 
   return (
@@ -660,6 +921,11 @@ export default function MerchantDetails() {
                     {APPLICATION_STATUS_LABEL[syncState.sync.applicationStatus] ?? syncState.sync.applicationStatus}
                   </Badge>
                 )}
+                {syncState.sync.paymentStatus && (
+                  <Badge tone={PAYMENT_STATUS_TONE[syncState.sync.paymentStatus] ?? 'neutral'}>
+                    {PAYMENT_STATUS_LABEL[syncState.sync.paymentStatus] ?? syncState.sync.paymentStatus}
+                  </Badge>
+                )}
               </div>
 
               <div className="flex shrink-0 flex-wrap justify-end gap-2">
@@ -679,7 +945,9 @@ export default function MerchantDetails() {
             <dl className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <dt className="text-neutral-500">Application ID</dt>
-                <dd className="truncate text-neutral-800 dark:text-neutral-200">{syncState.sync.externalId ?? '—'}</dd>
+                <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
+                  {renderSurfboardId(syncState.sync.externalId, 'Application ID')}
+                </dd>
               </div>
               <div>
                 <dt className="text-neutral-500">Provider</dt>
@@ -698,63 +966,106 @@ export default function MerchantDetails() {
               <div>
                 <dt className="text-neutral-500">Surfboard Merchant ID</dt>
                 <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
-                  {syncState.sync.surfboardMerchantId ? (
-                    <>
-                      <span className="truncate">{syncState.sync.surfboardMerchantId}</span>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(syncState.sync.surfboardMerchantId, 'Merchant ID')}
-                        className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                        title="Copy Merchant ID"
-                      >
-                        <Copy size={13} />
-                      </button>
-                    </>
-                  ) : (
-                    '—'
-                  )}
+                  {renderSurfboardId(syncState.sync.surfboardMerchantId, 'Merchant ID')}
                 </dd>
               </div>
               <div>
                 <dt className="text-neutral-500">Surfboard Store ID</dt>
                 <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
-                  {syncState.sync.surfboardStoreId ? (
-                    <>
-                      <span className="truncate">{syncState.sync.surfboardStoreId}</span>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(syncState.sync.surfboardStoreId, 'Store ID')}
-                        className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                        title="Copy Store ID"
-                      >
-                        <Copy size={13} />
-                      </button>
-                    </>
+                  {renderSurfboardId(syncState.sync.surfboardStoreId, 'Store ID')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500">Billing Plan</dt>
+                <dd className="text-neutral-800 dark:text-neutral-200">
+                  {syncState.sync.billingPlans?.length ? (
+                    syncState.sync.billingPlans.map((plan) => (
+                      <div key={plan.id} className="truncate">
+                        {getBillingPlanTitle(plan)}{' '}
+                        <span className="text-xs text-neutral-400">({plan.id})</span>
+                      </div>
+                    ))
                   ) : (
                     '—'
                   )}
                 </dd>
               </div>
-              <div>
-                <dt className="text-neutral-500">Billing Plan</dt>
-                <dd className="truncate text-neutral-800 dark:text-neutral-200">
-                  {syncState.sync.billingPlans?.length ? syncState.sync.billingPlans.map((plan) => plan.id).join(', ') : '—'}
-                </dd>
-              </div>
             </dl>
 
-            {syncState.sync.paymentMethods?.length > 0 && (
+            {/* Phase 3 — Payment Infrastructure. `enabledPaymentMethods` (the
+                dedicated List Payment Methods result) is preferred once
+                available; falls back to the KYB-flow `paymentMethods`
+                byproduct (which also carries per-method `status`) so a
+                merchant that's only ever had the KYB refresh still shows
+                something real, not a blank section. */}
+            {(syncState.sync.enabledPaymentMethods?.length > 0 || syncState.sync.paymentMethods?.length > 0) && (
               <div className="mt-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Payment Methods</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Enabled Payment Methods</p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {syncState.sync.paymentMethods.map((method) => (
-                    <Badge key={method.paymentMethod} tone={method.status === 'ACTIVATED' ? 'success' : 'neutral'}>
-                      {method.paymentMethod} · {method.status}
-                    </Badge>
-                  ))}
+                  {syncState.sync.enabledPaymentMethods?.length > 0
+                    ? syncState.sync.enabledPaymentMethods.map((method) => (
+                        <Badge key={method.paymentMethodId ?? method.paymentMethod} tone="success">
+                          {formatPaymentMethod(method.paymentMethod)}
+                        </Badge>
+                      ))
+                    : syncState.sync.paymentMethods.map((method) => (
+                        <Badge key={method.paymentMethod} tone={method.status === 'ACTIVATED' ? 'success' : 'neutral'}>
+                          {formatPaymentMethod(method.paymentMethod)} · {method.status}
+                        </Badge>
+                      ))}
                 </div>
               </div>
             )}
+
+            {syncState.sync.paymentMethods?.find((method) => method.paymentMethod === 'CARD')?.enabledSchemes?.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Supported Card Schemes</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {syncState.sync.paymentMethods
+                    .find((method) => method.paymentMethod === 'CARD')
+                    .enabledSchemes.map((scheme) => (
+                      <Badge key={scheme} tone="brand">
+                        {scheme}
+                      </Badge>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-5 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-neutral-500">Recent Payment Events</p>
+              {syncState.sync.settlementReports?.length > 0 ? (
+                <ul className="space-y-2">
+                  {syncState.sync.settlementReports.map((report) => (
+                    <li
+                      key={report.payoutId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-xs dark:bg-neutral-900/40"
+                    >
+                      <span className="text-neutral-600 dark:text-neutral-300">
+                        {report.reportType} · {report.transactionStartDate} – {report.transactionEndDate}
+                      </span>
+                      <span className="flex items-center gap-3 text-neutral-500">
+                        <span>Payout {report.payout}</span>
+                        {report.url && (
+                          <a
+                            href={report.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+                          >
+                            View report
+                          </a>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-neutral-500">
+                  No settlement reports available yet. Reports appear after completed and settled payments.
+                </p>
+              )}
+            </div>
 
             <p className="mt-4 text-xs text-neutral-500">
               {syncState.sync.connected
@@ -783,8 +1094,8 @@ export default function MerchantDetails() {
                       className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-50 px-3 py-2 text-xs dark:bg-neutral-900/40"
                     >
                       <div className="flex items-center gap-2">
-                        <Badge tone={SYNC_STATUS_TONE[entry.status] ?? 'neutral'} className="capitalize">
-                          {entry.status}
+                        <Badge tone={SYNC_STATUS_TONE[entry.status] ?? 'neutral'}>
+                          {SYNC_STATUS_LABEL[entry.status] ?? entry.status}
                         </Badge>
                         <span className="text-neutral-500">
                           {entry.triggeredBy === 'manual' ? 'Manual' : 'Automatic'} ·{' '}
@@ -801,6 +1112,26 @@ export default function MerchantDetails() {
               </div>
             )}
           </Card>
+        )}
+      </div>
+
+      <div className="mt-6">
+        <h2 className="mb-4 text-sm font-semibold text-neutral-900 dark:text-neutral-100">Branches</h2>
+
+        {branches.length === 0 ? (
+          <EmptyState compact title="No branches yet" description="This merchant has no branches to sync with Surfboard." />
+        ) : (
+          <DataTable columns={branchColumns} rows={branches} />
+        )}
+      </div>
+
+      <div className="mt-6">
+        <h2 className="mb-4 text-sm font-semibold text-neutral-900 dark:text-neutral-100">Devices</h2>
+
+        {devices.length === 0 ? (
+          <EmptyState compact title="No devices yet" description="This merchant has no payment terminals to sync with Surfboard." />
+        ) : (
+          <DataTable columns={deviceColumns} rows={devices} />
         )}
       </div>
 

@@ -16,3 +16,10 @@ export function getMerchantProfile() {
 export function updateMerchantProfile(updates) {
   return apiClient.patch('/merchant/profile', updates).then((res) => res.data.data)
 }
+
+// Phase 3 — Payment Infrastructure. Read-only — merchantId is derived from
+// the caller server-side, same as getMerchantProfile() above. No sync
+// trigger here; Refresh Sync stays Platform Admin only.
+export function getMerchantPaymentStatus() {
+  return apiClient.get('/merchant/payment-status').then((res) => res.data.data)
+}

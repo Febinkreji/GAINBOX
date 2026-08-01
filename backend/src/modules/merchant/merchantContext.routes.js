@@ -7,6 +7,7 @@ import { updateMerchantSchema } from './merchant.validation.js'
 import { merchantStaffController } from '../merchantStaff/merchantStaff.controller.js'
 import { staffIdParamSchema, invitationIdOnlyParamSchema } from '../merchantStaff/merchantStaff.validation.js'
 import { createMerchantScopedInvitationSchema, listInvitationsQuerySchema } from '../invitation/invitation.validation.js'
+import { merchantSyncController } from '../merchantSync/merchantSync.controller.js'
 
 /**
  * Merchant-context routes — mounted at /merchant (singular), not /merchants.
@@ -82,6 +83,36 @@ router.use(requireAuth(), requireMerchantContext())
  */
 router.get('/profile', requirePermission('merchant.read'), merchantController.getById)
 router.patch('/profile', requirePermission('merchant.write'), validate(updateMerchantSchema), merchantController.update)
+
+/**
+ * @openapi
+ * /merchant/payment-status:
+ *   get:
+ *     summary: Phase 3 — the authenticated user's own merchant's Surfboard payment configuration/status
+ *     description: >
+ *       Read-only — merchantId is derived from the caller, never supplied.
+ *       Same data and same underlying controller/service as Platform
+ *       Admin's GET /integrations/surfboard/merchants/{merchantId}/status
+ *       (see merchantSync.controller.js's resolveMerchantId-style reuse) —
+ *       no separate sync-trigger action exists here; Refresh Sync stays
+ *       Platform Admin only.
+ *     tags: [Merchant Context]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Current payment configuration/status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/ApiResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data: { $ref: '#/components/schemas/MerchantSyncStatus' }
+ *       401: { description: Missing or invalid bearer token, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+ *       403: { description: No merchant.read permission, or caller has no merchant assignment, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+ */
+router.get('/payment-status', requirePermission('merchant.read'), merchantSyncController.getStatus)
 
 /**
  * @openapi

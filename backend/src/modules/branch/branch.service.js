@@ -1,7 +1,6 @@
 import { branchRepository } from './branch.repository.js'
 import { merchantRepository } from '../merchant/merchant.repository.js'
-import { storeProvider } from './branch.providers.js'
-import { providerLinkService } from '../providerLink/providerLink.service.js'
+import { branchSyncService } from '../branchSync/branchSync.service.js'
 import { auditService } from '../audit/audit.service.js'
 import { outboxService } from '../outbox/outbox.service.js'
 import { withTransaction } from '../../database/connection.js'
@@ -19,7 +18,9 @@ import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
  *    transaction as the write itself, mirroring merchant.service.js;
  *  - the Surfboard sync call happens after that transaction commits, and
  *    its failure is caught and logged rather than failing the request —
- *    NotImplementedError is the expected state right now, not a bug.
+ *    branch creation always succeeds even if Surfboard Store sync doesn't
+ *    (e.g. the merchant hasn't reached MERCHANT_CREATED yet, or this
+ *    branch has no phone number yet — see branchSync.service.js).
  */
 export const branchService = {
   async list(query, accessibleMerchantIds) {
@@ -88,32 +89,18 @@ export const branchService = {
       return created
     })
 
+    // Delegates to branchSyncService (Phase 2 — Store & Device
+    // Integration), which owns Duplicate Prevention, the merchant-
+    // MERCHANT_CREATED lifecycle check, and the actual Create Store call —
+    // this is also exactly what the "Refresh Sync" action re-runs later,
+    // so there's one code path for both instead of two copies of the same
+    // create-or-refresh branching. Never thrown from here: startSync()
+    // itself already turns an expected provider failure into a recorded
+    // `sync_history` row, not an exception — this catch is only a safety
+    // net for a genuine framework error, so branch creation still succeeds
+    // either way.
     try {
-      // Store Capabilities is scoped under Surfboard's own merchant id
-      // (/partners/{partnerId}/merchants/{merchantExternalId}/stores) — not
-      // GainBox's merchant.id. That mapping lives in provider_links,
-      // written once Merchant Creation's own success response is
-      // confirmed (see surfboardMerchantAdapter.js) — until then, no
-      // merchant has one yet, so this is skipped rather than sent with a
-      // meaningless id.
-      const merchantLink = await providerLinkService.checkExistingMapping('merchant', branch.merchantId, 'surfboard')
-
-      if (!merchantLink) {
-        logger.warn(
-          { branchId: branch.id, merchantId: branch.merchantId },
-          'Surfboard store sync skipped — merchant has no Surfboard mapping yet',
-        )
-      } else {
-        const result = await storeProvider.createStore(merchantLink.externalId, branch)
-
-        await providerLinkService.createLink({
-          entityType: 'branch',
-          entityId: branch.id,
-          provider: 'surfboard',
-          externalId: result.externalId,
-          metadata: result.metadata,
-        })
-      }
+      await branchSyncService.startSync(branch.id, { actorUserId })
     } catch (error) {
       logger.warn({ err: error, branchId: branch.id }, 'Surfboard store sync failed')
     }

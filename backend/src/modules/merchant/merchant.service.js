@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { merchantRepository } from './merchant.repository.js'
-import { merchantProvider } from './merchant.providers.js'
+import { merchantProvider, paymentConfigProvider } from './merchant.providers.js'
 import { providerLinkService } from '../providerLink/providerLink.service.js'
+import { unwrapProviderMetadata } from '../providerLink/providerLinkMetadata.util.js'
 import { branchRepository } from '../branch/branch.repository.js'
 import { deviceRepository } from '../device/device.repository.js'
 import { subscriptionRepository } from '../membership/subscription.repository.js'
@@ -232,7 +233,7 @@ export const merchantService = {
     // defensively here means this merge (and every future read of this row)
     // lands on one flat shape, self-healing that row going forward without
     // a migration.
-    const currentMetadata = link.metadata?.metadata ?? link.metadata ?? {}
+    const currentMetadata = unwrapProviderMetadata(link) ?? {}
 
     const updates = {}
     if (result?.data?.merchantId) updates.merchantId = result.data.merchantId
@@ -245,6 +246,28 @@ export const merchantService = {
     if (result?.data?.applicationStatus) updates.applicationStatus = result.data.applicationStatus
     if (result?.data?.paymentMethods) updates.paymentMethods = result.data.paymentMethods
     if (result?.data?.billingPlans) updates.billingPlans = result.data.billingPlans
+
+    // Phase 3 — Payment Infrastructure. These need Surfboard's own real
+    // merchantId (not the applicationId `link.externalId` holds) — same
+    // "MERCHANT_CREATED gate" every Phase 2 provider call already respects.
+    // Best-effort, each independently: a failure in either must never block
+    // the applicationStatus/paymentMethods/billingPlans refresh above, or
+    // each other.
+    const realMerchantId = updates.merchantId ?? currentMetadata.merchantId
+
+    if (realMerchantId) {
+      try {
+        updates.enabledPaymentMethods = await paymentConfigProvider.listPaymentMethods(realMerchantId)
+      } catch (error) {
+        logger.warn({ err: error, merchantId: id }, 'Listing Surfboard payment methods failed — status refresh continues')
+      }
+
+      try {
+        updates.settlementReports = await paymentConfigProvider.getSettlementReports(realMerchantId)
+      } catch (error) {
+        logger.warn({ err: error, merchantId: id }, 'Fetching Surfboard settlement reports failed — status refresh continues')
+      }
+    }
 
     if (Object.keys(updates).length > 0) {
       await providerLinkService.updateLink(link.id, {

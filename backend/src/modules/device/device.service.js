@@ -1,7 +1,6 @@
 import { deviceRepository } from './device.repository.js'
 import { branchRepository } from '../branch/branch.repository.js'
-import { deviceProvider } from './device.providers.js'
-import { providerLinkService } from '../providerLink/providerLink.service.js'
+import { deviceSyncService } from '../deviceSync/deviceSync.service.js'
 import { auditService } from '../audit/audit.service.js'
 import { outboxService } from '../outbox/outbox.service.js'
 import { withTransaction } from '../../database/connection.js'
@@ -20,7 +19,10 @@ import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
  *  - create/update/delete are audited and outboxed in the same DB
  *    transaction as the write itself;
  *  - the Surfboard sync call happens after that transaction commits, and
- *    its failure is caught and logged rather than failing the request.
+ *    its failure is caught and logged rather than failing the request —
+ *    device creation always succeeds even if Surfboard Terminal sync
+ *    doesn't (e.g. the branch has no Surfboard Store yet, or this device
+ *    has no registration identifier yet — see deviceSync.service.js).
  *
  * Note on this module's history: the original foundation-stage stub
  * exposed separate register/deactivate/configureBranding/configureTips
@@ -99,32 +101,14 @@ export const deviceService = {
       return created
     })
 
+    // Delegates to deviceSyncService (Phase 2 — Store & Device
+    // Integration), which owns Duplicate Prevention, the merchant/branch
+    // lifecycle checks, and the actual Register Terminal call — same
+    // "one code path for create and refresh" reasoning as
+    // branch.service.js's own create(). Never thrown from here, same
+    // safety-net reasoning too.
     try {
-      // Device Registration is scoped under Surfboard's own merchant AND
-      // store ids (/merchants/{merchantId}/stores/{storeId}/devices) —
-      // neither is GainBox's own id. Both mappings live in provider_links,
-      // same Duplicate-Prevention-style check branch.service.js already
-      // does for its own merchant link — skipped (logged) if either is
-      // missing, rather than sent with a meaningless id.
-      const merchantLink = await providerLinkService.checkExistingMapping('merchant', branch.merchantId, 'surfboard')
-      const storeLink = await providerLinkService.checkExistingMapping('branch', branch.id, 'surfboard')
-
-      if (!merchantLink || !storeLink) {
-        logger.warn(
-          { deviceId: device.id, branchId: branch.id, hasMerchantLink: Boolean(merchantLink), hasStoreLink: Boolean(storeLink) },
-          'Surfboard device sync skipped — branch has no Surfboard store mapping yet',
-        )
-      } else {
-        const result = await deviceProvider.registerDevice(merchantLink.externalId, storeLink.externalId, device)
-
-        await providerLinkService.createLink({
-          entityType: 'device',
-          entityId: device.id,
-          provider: 'surfboard',
-          externalId: result.externalId,
-          metadata: result.metadata,
-        })
-      }
+      await deviceSyncService.startSync(device.id, { actorUserId })
     } catch (error) {
       logger.warn({ err: error, deviceId: device.id }, 'Surfboard device sync failed')
     }
