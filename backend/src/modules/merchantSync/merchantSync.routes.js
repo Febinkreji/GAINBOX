@@ -66,14 +66,20 @@ router.get('/history', validate(syncHistoryQuerySchema, 'query'), merchantSyncCo
  * @openapi
  * /integrations/surfboard/merchants/{merchantId}/sync:
  *   post:
- *     summary: Manually trigger a Surfboard sync for one merchant (Sprint 2A — Merchant Integration Framework)
+ *     summary: Manually trigger a Surfboard sync for one merchant, or refresh its status if already synced ("Refresh Surfboard Status" in Merchant Details)
  *     description: >
  *       Runs the full framework end-to-end — Duplicate Prevention check,
  *       Provider Port call, Sync History recording — synchronously, and
- *       always returns 200 with the real outcome. The Surfboard adapter is
- *       a Sprint 2A stub (see docs/architecture/SURFBOARD_INTEGRATION.md),
- *       so `status` is "failed" today unless a provider_links mapping
- *       already exists (in which case it's "skipped").
+ *       always returns 200 with the real outcome. If no provider_links
+ *       mapping exists yet, calls Create Merchant and records the result
+ *       (`status: "completed"` or `"failed"`). If one already exists,
+ *       Create Merchant is never called again (Duplicate Prevention) —
+ *       instead this also calls Check Application Status and persists any
+ *       new applicationStatus/merchantId/storeId/paymentMethods/
+ *       billingPlans onto the existing mapping, then returns
+ *       `status: "skipped"` (the sync itself was skipped; the refresh is a
+ *       side effect). See GET `/{merchantId}/status` for the persisted
+ *       result of that refresh.
  *     tags: [Surfboard Integration]
  *     security:
  *       - bearerAuth: []
@@ -108,61 +114,18 @@ router.post('/:merchantId/sync', validate(merchantSyncIdParamSchema, 'params'), 
 
 /**
  * @openapi
- * /integrations/surfboard/merchants/{merchantId}/simulate:
- *   post:
- *     summary: Simulate a completed onboarding for demo purposes (disabled in production)
- *     description: >
- *       Fabricates an obviously-fake applicationId/merchantId/storeId and
- *       records a `provider_links` mapping flagged `metadata.simulated: true`.
- *       Not a real Surfboard connection — exists only because this
- *       integration is currently blocked on an external, account-level gap
- *       (no transaction pricing plan provisioned for the partner account)
- *       that no request payload can work around. Returns 403 in production.
- *     tags: [Surfboard Integration]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: merchantId
- *         required: true
- *         schema: { type: string, format: uuid }
- *     responses:
- *       200:
- *         description: Simulated onboarding recorded
- *         content:
- *           application/json:
- *             schema:
- *               allOf:
- *                 - $ref: '#/components/schemas/ApiResponse'
- *                 - type: object
- *                   properties:
- *                     data: { $ref: '#/components/schemas/MerchantSyncResult' }
- *       409:
- *         description: A Surfboard mapping already exists for this merchant
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/ErrorResponse' }
- *       422:
- *         description: Disabled in production
- *         content:
- *           application/json:
- *             schema: { $ref: '#/components/schemas/ErrorResponse' }
- */
-router.post(
-  '/:merchantId/simulate',
-  validate(merchantSyncIdParamSchema, 'params'),
-  merchantSyncController.simulateOnboarding,
-)
-
-/**
- * @openapi
  * /integrations/surfboard/merchants/{merchantId}/status:
  *   get:
  *     summary: Current Surfboard synchronization status for one merchant (Sprint 2A — Merchant Integration Framework)
  *     description: >
- *       Derived from the latest sync_history row and whether an active
- *       provider_links mapping exists — never a separately stored column,
- *       so this can never drift from the history it's computed from.
+ *       Derived from the latest sync_history row and the provider_links
+ *       mapping's stored metadata — never a separately stored column, so
+ *       this can never drift from the data it's computed from. This is a
+ *       read of what was last persisted, not a live Surfboard call — POST
+ *       `/{merchantId}/sync` ("Refresh Surfboard Status") is what actually
+ *       calls Surfboard and updates applicationStatus/surfboardMerchantId/
+ *       surfboardStoreId/paymentMethods/billingPlans before this reflects
+ *       the change.
  *     tags: [Surfboard Integration]
  *     security:
  *       - bearerAuth: []

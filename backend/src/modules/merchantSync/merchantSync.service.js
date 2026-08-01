@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { merchantRepository } from '../merchant/merchant.repository.js'
 import { merchantProvider } from '../merchant/merchant.providers.js'
+import { merchantService } from '../merchant/merchant.service.js'
 import { providerLinkService } from '../providerLink/providerLink.service.js'
 import { syncHistoryRepository } from '../sync/syncHistory.repository.js'
 import { outboxRepository } from '../outbox/outbox.repository.js'
-import { NotFoundError, ConflictError, ValidationError } from '../../errors/index.js'
-import { isProduction } from '../../config/env.js'
+import { NotFoundError } from '../../errors/index.js'
 import { logger } from '../../logger/logger.js'
 import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
 
@@ -59,6 +59,24 @@ async function attemptSync({ merchantId, correlationId, triggeredBy, actorUserId
       'Duplicate Prevented — merchant already has a Surfboard mapping, skipping sync',
     )
 
+    // Duplicate Prevention only ever meant "never call Create Merchant
+    // twice" — it was never meant to also freeze this link's merchantId/
+    // storeId/applicationStatus at whatever they were the day the mapping
+    // was created. This is what "Refresh Surfboard Status" (this same
+    // startSync() path) actually needs to do for an application still in
+    // progress. Reuses merchant.service.js's own getStatus() (Check
+    // Application Status + persist) rather than duplicating that logic
+    // here. A refresh failure is logged, not thrown — it must never turn
+    // an otherwise-successful "skipped" outcome into an error.
+    try {
+      await merchantService.getStatus(merchantId)
+    } catch (error) {
+      logger.warn(
+        { err: error, merchantId, correlationId },
+        'Refreshing Surfboard application status failed — duplicate-prevention result is unaffected',
+      )
+    }
+
     return {
       status: 'skipped',
       historyId: historyRow.id,
@@ -95,7 +113,13 @@ async function attemptSync({ merchantId, correlationId, triggeredBy, actorUserId
       entityId: merchantId,
       provider: PROVIDER,
       externalId: result.externalId,
-      metadata: result,
+      // Only the adapter's `metadata` sub-object (applicationId, webKybUrl,
+      // etc.) — not the whole `{ externalId, status, metadata }` result,
+      // which would double-wrap it and silently break every later read
+      // that expects a flat metadata shape (see merchantService.getStatus()
+      // and merchantSyncService.getStatus(), both of which unwrap around
+      // this exact mistake for rows written before this fix).
+      metadata: result.metadata,
     })
 
     logger.info({ merchantId, correlationId, externalId: link.externalId }, 'Provider Link Created')
@@ -132,79 +156,6 @@ export const merchantSyncService = {
   },
 
   /**
-   * Demo-only simulated onboarding — NOT a real Surfboard connection.
-   * Exists because this integration is currently blocked on an external,
-   * account-level gap (the partner account has no transaction pricing plan
-   * provisioned — see docs/architecture/SURFBOARD_INTEGRATION.md's Known
-   * Limitations), which no amount of GainBox code can resolve. Fabricates
-   * an obviously-fake applicationId/merchantId/storeId, clearly flagged
-   * `metadata.simulated: true` everywhere it's stored, so it can never be
-   * mistaken for a genuine provider_links mapping created by attemptSync()
-   * above. Disabled outright in production as a safety rail — this is a
-   * demo aid, not a feature real deployments should ever expose.
-   */
-  async simulateOnboarding(merchantId, { actorUserId } = {}) {
-    if (isProduction) {
-      throw new ValidationError('Simulated onboarding is a demo-only feature and is disabled in production')
-    }
-
-    const merchant = await merchantRepository.findById(merchantId)
-
-    if (!merchant) {
-      throw new NotFoundError('Merchant not found')
-    }
-
-    const existingLink = await providerLinkService.checkExistingMapping(ENTITY_TYPE, merchantId, PROVIDER)
-
-    if (existingLink) {
-      throw new ConflictError('A Surfboard mapping already exists for this merchant')
-    }
-
-    const correlationId = randomUUID()
-    const fakeApplicationId = `DEMO-APP-${randomUUID()}`
-    const fakeMerchantId = `DEMO-MERCHANT-${randomUUID()}`
-    const fakeStoreId = `DEMO-STORE-${randomUUID()}`
-
-    const historyRow = await syncHistoryRepository.create({
-      entityType: ENTITY_TYPE,
-      entityId: merchantId,
-      provider: PROVIDER,
-      status: 'running',
-      correlationId,
-      triggeredBy: 'manual',
-      actorUserId,
-    })
-
-    const link = await providerLinkService.createLink({
-      entityType: ENTITY_TYPE,
-      entityId: merchantId,
-      provider: PROVIDER,
-      externalId: fakeApplicationId,
-      metadata: {
-        simulated: true,
-        applicationId: fakeApplicationId,
-        merchantId: fakeMerchantId,
-        storeId: fakeStoreId,
-        message: 'Simulated onboarding — not a real Surfboard connection. Generated for demo purposes only.',
-      },
-    })
-
-    await syncHistoryRepository.markCompleted(historyRow.id, { durationMs: 0 })
-
-    logger.warn(
-      { merchantId, correlationId, externalId: link.externalId },
-      'Simulated Surfboard Onboarding — demo mode only, NOT a real connection',
-    )
-
-    return {
-      status: 'completed',
-      historyId: historyRow.id,
-      externalId: link.externalId,
-      simulated: true,
-    }
-  },
-
-  /**
    * The outbox worker's entry point — resolves the `pending` row created
    * inside merchant.service.js's own transaction, rather than creating a
    * new one, so "queued at merchant-creation time" and "attempted by the
@@ -232,6 +183,15 @@ export const merchantSyncService = {
       countPendingSyncEvents(merchantId),
     ])
 
+    // attemptSync()'s create branch now writes a flat `metadata` (just
+    // `result.metadata`), and merchant.service.js's getStatus() self-heals
+    // any row it refreshes onto the same flat shape — but rows created
+    // before that fix (and never since refreshed) still have the old
+    // double-wrapped shape (`{ externalId, status, metadata: {...} }`).
+    // Unwrapping defensively here means this read works for both without
+    // needing a data migration.
+    const providerMetadata = link?.metadata?.metadata ?? link?.metadata ?? null
+
     return {
       merchantId,
       provider: PROVIDER,
@@ -242,10 +202,27 @@ export const merchantSyncService = {
       // never a separate column (same "derive, don't duplicate" reasoning
       // as the rest of this status object). Lets Platform Admin complete
       // the merchant's Surfboard application from Merchant Details.
-      webKybUrl: link?.metadata?.webKybUrl ?? null,
-      // True only for links created by simulateOnboarding() (demo mode) —
-      // lets the UI visibly distinguish a fake connection from a real one.
-      simulated: link?.metadata?.simulated ?? false,
+      webKybUrl: providerMetadata?.webKybUrl ?? null,
+      // Surfboard's own merchant id — distinct from the GainBox `merchantId`
+      // above (that's this route's own path param). Populated once Check
+      // Application Status or the "Application Merchant Created" webhook
+      // confirms MERCHANT_CREATED (see merchant.service.js's getStatus() and
+      // webhook.service.js) — null until then. The frontend uses this, not
+      // `syncStatus`, to know whether onboarding has actually finished,
+      // since a "completed" sync only means Create Merchant succeeded, not
+      // that the merchant exists yet on Surfboard's side.
+      surfboardMerchantId: providerMetadata?.merchantId ?? null,
+      // Surfboard's own store id — same "populated once MERCHANT_CREATED"
+      // rule as surfboardMerchantId above.
+      surfboardStoreId: providerMetadata?.storeId ?? null,
+      // The raw Surfboard application status (APPLICATION_INITIATED |
+      // APPLICATION_SUBMITTED | APPLICATION_PENDING_INFORMATION |
+      // APPLICATION_SIGNED | APPLICATION_COMPLETED | MERCHANT_CREATED |
+      // APPLICATION_REJECTED | APPLICATION_EXPIRED) — null until the first
+      // successful Check Application Status call persists it.
+      applicationStatus: providerMetadata?.applicationStatus ?? null,
+      paymentMethods: providerMetadata?.paymentMethods ?? null,
+      billingPlans: providerMetadata?.billingPlans ?? null,
       syncStatus: latest?.status ?? 'never_started',
       lastSyncAt: latest?.startedAt ?? null,
       lastSyncResult: latest?.status ?? null,

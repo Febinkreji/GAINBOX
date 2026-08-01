@@ -86,6 +86,27 @@ export class SubscriptionRepository {
     return result.rows[0].total
   }
 
+  /**
+   * Subscriptions have no `merchant_id` of their own — only a merchant's
+   * Membership Plan does — so this is the one query in this repository that
+   * joins out to another table rather than filtering its own columns
+   * directly. Used by merchant.service.js's remove() to block deletion
+   * while real subscribers exist. Deliberately ignores the plan's own
+   * status/deleted_at: an active subscriber is still a real dependency even
+   * if its plan was since archived or soft-deleted.
+   */
+  async countActiveForMerchant(merchantId, client = getPool()) {
+    const result = await client.query(
+      `SELECT COUNT(*)::int AS total
+       FROM subscriptions s
+       JOIN membership_plans mp ON mp.id = s.membership_plan_id
+       WHERE mp.merchant_id = $1 AND s.status = 'active'`,
+      [merchantId],
+    )
+
+    return result.rows[0].total
+  }
+
   async create(data, client = getPool()) {
     const result = await client.query(
       `INSERT INTO subscriptions (membership_plan_id, customer_id)

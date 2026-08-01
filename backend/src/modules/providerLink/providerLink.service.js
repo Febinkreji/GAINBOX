@@ -61,8 +61,15 @@ export const providerLinkService = {
     return updated
   },
 
-  async deleteLink(id) {
-    const deleted = await providerLinkRepository.softDelete(id)
+  /**
+   * @param {string} id
+   * @param {import('pg').PoolClient} [client] - pass a transaction client so
+   *   this soft-delete commits/rolls back with the caller's own transaction
+   *   (see merchant.service.js's remove()) — omit to use the default pool,
+   *   same as every other method here.
+   */
+  async deleteLink(id, client) {
+    const deleted = await providerLinkRepository.softDelete(id, client)
 
     if (!deleted) {
       throw new NotFoundError('Provider link not found')
@@ -79,8 +86,8 @@ export const providerLinkService = {
     return providerLinkRepository.countByProvider(provider)
   },
 
-  async findByEntity(entityType, entityId, provider) {
-    return providerLinkRepository.findByEntity(entityType, entityId, provider)
+  async findByEntity(entityType, entityId, provider, client) {
+    return providerLinkRepository.findByEntity(entityType, entityId, provider, client)
   },
 
   /**

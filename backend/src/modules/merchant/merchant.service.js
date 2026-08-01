@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { merchantRepository } from './merchant.repository.js'
 import { merchantProvider } from './merchant.providers.js'
 import { providerLinkService } from '../providerLink/providerLink.service.js'
+import { branchRepository } from '../branch/branch.repository.js'
+import { deviceRepository } from '../device/device.repository.js'
+import { subscriptionRepository } from '../membership/subscription.repository.js'
+import { invitationRepository } from '../invitation/invitation.repository.js'
 import { auditService } from '../audit/audit.service.js'
 import { outboxService } from '../outbox/outbox.service.js'
 import { syncHistoryRepository } from '../sync/syncHistory.repository.js'
@@ -222,20 +226,64 @@ export const merchantService = {
 
     const result = await merchantProvider.getMerchantStatus(link.externalId)
 
-    const newMerchantId = result?.data?.merchantId
-    const newStoreId = result?.data?.storeId
+    // Some existing rows have `metadata` double-wrapped (an older write
+    // stored the whole adapter result — `{ externalId, status, metadata:
+    // {...} }` — instead of just its `metadata` sub-object). Unwrapping
+    // defensively here means this merge (and every future read of this row)
+    // lands on one flat shape, self-healing that row going forward without
+    // a migration.
+    const currentMetadata = link.metadata?.metadata ?? link.metadata ?? {}
 
-    if (newMerchantId || newStoreId) {
+    const updates = {}
+    if (result?.data?.merchantId) updates.merchantId = result.data.merchantId
+    if (result?.data?.storeId) updates.storeId = result.data.storeId
+    // applicationStatus/paymentMethods/billingPlans aren't merchant-identity
+    // fields like the two above, but they're the same "what Surfboard just
+    // told us" data — persisting them here (not just merchantId/storeId)
+    // is what lets Platform Admin's status view show the current onboarding
+    // stage without hitting Surfboard again on every page load.
+    if (result?.data?.applicationStatus) updates.applicationStatus = result.data.applicationStatus
+    if (result?.data?.paymentMethods) updates.paymentMethods = result.data.paymentMethods
+    if (result?.data?.billingPlans) updates.billingPlans = result.data.billingPlans
+
+    if (Object.keys(updates).length > 0) {
       await providerLinkService.updateLink(link.id, {
-        metadata: {
-          ...link.metadata,
-          ...(newMerchantId ? { merchantId: newMerchantId } : {}),
-          ...(newStoreId ? { storeId: newStoreId } : {}),
-        },
+        metadata: { ...currentMetadata, ...updates },
       })
     }
 
     return result
+  },
+
+  /**
+   * Merchant Delete (Platform Administration) — deliberately conservative:
+   * blocks entirely rather than cascading a hard-delete through
+   * branches/devices/subscriptions, which no other module in this codebase
+   * does either (Branch/Device/MembershipPlan's own remove() have no
+   * "no children" check of their own). Every count below reuses an
+   * existing repository method except countActiveForMerchant, which didn't
+   * exist anywhere yet (subscriptions have no merchant_id of their own).
+   */
+  async assertDeletable(id) {
+    const [branchCount, deviceCount, activeMembershipCount, pendingSyncCount, runningSyncCount] = await Promise.all([
+      branchRepository.count({ merchantId: id, status: null, search: null, merchantIds: null }),
+      deviceRepository.count({ branchId: null, status: null, search: null, merchantIds: [id] }),
+      subscriptionRepository.countActiveForMerchant(id),
+      syncHistoryRepository.count({ entityType: 'merchant', entityId: id, provider: 'surfboard', status: 'pending' }),
+      syncHistoryRepository.count({ entityType: 'merchant', entityId: id, provider: 'surfboard', status: 'running' }),
+    ])
+
+    const pendingOnboardingCount = pendingSyncCount + runningSyncCount
+
+    const blockers = []
+    if (branchCount > 0) blockers.push(`${branchCount} branch(es)`)
+    if (deviceCount > 0) blockers.push(`${deviceCount} device(s)`)
+    if (activeMembershipCount > 0) blockers.push(`${activeMembershipCount} active membership(s)`)
+    if (pendingOnboardingCount > 0) blockers.push('pending Surfboard onboarding')
+
+    if (blockers.length > 0) {
+      throw new ConflictError(`Cannot delete merchant: it has ${blockers.join(', ')}`)
+    }
   },
 
   async remove(id, actorUserId) {
@@ -245,8 +293,39 @@ export const merchantService = {
       throw new NotFoundError('Merchant not found')
     }
 
+    await this.assertDeletable(id)
+
     await withTransaction(async (client) => {
       await merchantRepository.softDelete(id, client)
+
+      // Every non-terminal invitation (any role — owner, staff, viewer) is
+      // revoked so nothing redeemable outlives the merchant it points to.
+      // Accepted/already-revoked invitations are left alone — they're
+      // already terminal, same rule invitation.service.js's own revoke()
+      // enforces (this just applies it in bulk).
+      const [pendingInvitations, expiredInvitations] = await Promise.all([
+        invitationRepository.findAll({ merchantId: id, status: 'pending' }, { pageSize: 500, offset: 0 }, client),
+        invitationRepository.findAll({ merchantId: id, status: 'expired' }, { pageSize: 500, offset: 0 }, client),
+      ])
+      const revokedInvitationIds = []
+
+      for (const invitation of [...pendingInvitations, ...expiredInvitations]) {
+        await invitationRepository.update(invitation.id, { status: 'revoked' }, client)
+        revokedInvitationIds.push(invitation.id)
+      }
+
+      // The merchant's own Surfboard mapping (if Merchant Creation ever
+      // completed) — soft-deleted so it can't be mistaken for a live
+      // integration. Branch/device-level provider links need no separate
+      // handling: assertDeletable() above already guarantees no
+      // branches/devices exist to have one.
+      const merchantProviderLink = await providerLinkService.findByEntity('merchant', id, 'surfboard', client)
+      if (merchantProviderLink) {
+        await providerLinkService.deleteLink(merchantProviderLink.id, client)
+      }
+
+      // sync_history is left untouched — it's an immutable audit trail
+      // ("what happened last time"), not a live dependency of the merchant.
 
       await auditService.record(
         {
@@ -254,7 +333,21 @@ export const merchantService = {
           entityId: id,
           action: 'merchant.deleted',
           actorUserId: actorUserId ?? null,
-          metadata: {},
+          metadata: {
+            businessName: existing.businessName,
+            revokedInvitationIds,
+            providerLinkRemoved: Boolean(merchantProviderLink),
+          },
+        },
+        client,
+      )
+
+      await outboxService.publish(
+        {
+          eventType: 'MerchantDeleted',
+          aggregateType: 'merchant',
+          aggregateId: id,
+          payload: { id },
         },
         client,
       )

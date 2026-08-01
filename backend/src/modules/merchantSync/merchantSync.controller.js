@@ -17,12 +17,6 @@ export const merchantSyncController = {
     ApiResponse.send(res, { data: result, message: 'Merchant sync attempted' })
   }),
 
-  /** Demo-only — see merchantSyncService.simulateOnboarding()'s own docstring. */
-  simulateOnboarding: asyncHandler(async (req, res) => {
-    const result = await merchantSyncService.simulateOnboarding(req.params.merchantId, { actorUserId: req.user?.id })
-    ApiResponse.send(res, { data: result, message: 'Simulated onboarding completed (demo mode — not a real Surfboard connection)' })
-  }),
-
   getStatus: asyncHandler(async (req, res) => {
     const status = await merchantSyncService.getStatus(req.params.merchantId)
     ApiResponse.send(res, { data: status })

@@ -227,7 +227,13 @@
  * /merchants/{id}:
  *   delete:
  *     summary: Soft-delete a merchant
- *     description: Sets deleted_at; the row is never physically removed.
+ *     description: >
+ *       Sets deleted_at; the row is never physically removed. Blocked with
+ *       409 if the merchant has any branches, devices, active memberships,
+ *       or a pending/running Surfboard onboarding sync — see
+ *       `/platform/merchants/{merchantId}` (the equivalent platform-admin
+ *       route) for the full guard/cleanup behavior, which this legacy route
+ *       shares in full since both call merchant.service.js's same remove().
  *     tags: [Merchants]
  *     security:
  *       - bearerAuth: []
@@ -252,6 +258,13 @@
  *         content:
  *           application/json:
  *             schema: { $ref: '#/components/schemas/NotFoundError' }
+ *       409:
+ *         description: >
+ *           Merchant has branches, devices, active memberships, and/or
+ *           pending Surfboard onboarding — the error message names which.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
  */
 
 export {}

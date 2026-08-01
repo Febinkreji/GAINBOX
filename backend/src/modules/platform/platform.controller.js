@@ -53,6 +53,11 @@ export const platformController = {
     ApiResponse.send(res, { data: merchant, message: 'Merchant deactivated' })
   }),
 
+  removeMerchant: asyncHandler(async (req, res) => {
+    await merchantService.remove(req.params.merchantId, req.user?.id)
+    ApiResponse.send(res, { message: 'Merchant deleted' })
+  }),
+
   // User Activate/Deactivate (Step 4) — thin wrappers over the user
   // module's own service; no business logic lives here.
   activateUser: asyncHandler(async (req, res) => {

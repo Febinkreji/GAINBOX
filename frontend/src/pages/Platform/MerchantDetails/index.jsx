@@ -11,7 +11,7 @@ import {
   PowerOff,
   Power as PowerIcon,
   RefreshCw,
-  Sparkles,
+  Trash2,
   UserPlus,
   XCircle,
 } from 'lucide-react'
@@ -37,17 +37,21 @@ import {
   updateMerchant,
   activateMerchant,
   deactivateMerchant,
+  deleteMerchant,
   createInvitation,
   listInvitations,
   resendInvitation,
   revokeInvitation,
   getMerchantSyncStatus,
   triggerMerchantSync,
-  simulateMerchantOnboarding,
   getMerchantSyncHistory,
 } from '@/services/platformService'
 
 const INVITATION_STATUS_TONE = { pending: 'brand', accepted: 'success', expired: 'neutral', revoked: 'danger' }
+// Backs only the Sync History list's per-entry badges below — the top-level
+// summary badges use CONNECTION_STATUS_TONE/APPLICATION_STATUS_TONE instead
+// (a raw sync_history status like "skipped" isn't informative on its own,
+// which is exactly what those replace).
 const SYNC_STATUS_TONE = {
   never_started: 'neutral',
   pending: 'brand',
@@ -56,13 +60,55 @@ const SYNC_STATUS_TONE = {
   failed: 'danger',
   skipped: 'neutral',
 }
-const SYNC_STATUS_LABEL = {
-  never_started: 'Never synced',
-  pending: 'Queued',
-  running: 'Syncing…',
-  completed: 'Synced',
-  failed: 'Failed',
-  skipped: 'Skipped',
+
+// Connection Status is deliberately just these three values — distinct
+// from `syncStatus` above (which reflects the last *sync attempt's* own
+// outcome, e.g. "skipped" because a mapping already existed). "Connected"
+// means a provider_link exists at all, regardless of which onboarding
+// stage the application is at; "Failed" means the most recent attempt to
+// create one failed; "Pending" covers everything before either of those.
+const CONNECTION_STATUS_TONE = { connected: 'success', pending: 'brand', failed: 'danger' }
+const CONNECTION_STATUS_LABEL = { connected: 'Connected', pending: 'Pending', failed: 'Failed' }
+
+function deriveConnectionStatus(sync) {
+  if (!sync) return 'pending'
+  if (sync.connected) return 'connected'
+  if (sync.syncStatus === 'failed') return 'failed'
+  return 'pending'
+}
+
+// Surfboard's own KYB application status enum (Check Application Status).
+const APPLICATION_STATUS_LABEL = {
+  APPLICATION_INITIATED: 'Application Initiated',
+  APPLICATION_SUBMITTED: 'Application Submitted',
+  APPLICATION_PENDING_INFORMATION: 'Pending Information',
+  APPLICATION_SIGNED: 'Application Signed',
+  APPLICATION_COMPLETED: 'Application Completed',
+  MERCHANT_CREATED: 'Merchant Created',
+  APPLICATION_REJECTED: 'Application Rejected',
+  APPLICATION_EXPIRED: 'Application Expired',
+}
+const APPLICATION_STATUS_TONE = {
+  APPLICATION_INITIATED: 'neutral',
+  APPLICATION_SUBMITTED: 'brand',
+  APPLICATION_PENDING_INFORMATION: 'warning',
+  APPLICATION_SIGNED: 'brand',
+  APPLICATION_COMPLETED: 'brand',
+  MERCHANT_CREATED: 'success',
+  APPLICATION_REJECTED: 'danger',
+  APPLICATION_EXPIRED: 'danger',
+}
+// A plain-English restatement of applicationStatus for admins who don't
+// have Surfboard's own status enum memorized.
+const ONBOARDING_STAGE_DESCRIPTION = {
+  APPLICATION_INITIATED: 'Waiting for the merchant to complete the hosted KYB form.',
+  APPLICATION_SUBMITTED: 'KYB form submitted — awaiting signatory/UBO signatures.',
+  APPLICATION_PENDING_INFORMATION: 'Surfboard needs additional information from the merchant.',
+  APPLICATION_SIGNED: 'All signatories have signed — awaiting compliance review.',
+  APPLICATION_COMPLETED: 'Compliance review passed — merchant account is being provisioned.',
+  MERCHANT_CREATED: 'Onboarding complete — merchant and store are live on Surfboard.',
+  APPLICATION_REJECTED: 'The application was rejected by Surfboard.',
+  APPLICATION_EXPIRED: 'The application expired before completion.',
 }
 
 // Keyed by onboardingStage — see MerchantManagement/index.jsx's note.
@@ -95,6 +141,9 @@ export default function MerchantDetails() {
   const [lifecycleAction, setLifecycleAction] = useState(null) // 'activate' | 'deactivate' | null
   const [isTransitioning, setIsTransitioning] = useState(false)
 
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+
   const [inviteValues, setInviteValues] = useState({ email: '', displayName: '' })
   const [inviteErrors, setInviteErrors] = useState({})
   const [isInviting, setIsInviting] = useState(false)
@@ -107,9 +156,6 @@ export default function MerchantDetails() {
 
   const [syncState, setSyncState] = useState({ status: 'loading', sync: null, history: [] })
   const [isSyncing, setIsSyncing] = useState(false)
-  const kybModal = useDisclosure()
-  const simulateModal = useDisclosure()
-  const [isSimulating, setIsSimulating] = useState(false)
 
   const loadSyncStatus = useCallback(async () => {
     // Independent of the main merchant load — a failure here (or the
@@ -146,23 +192,12 @@ export default function MerchantDetails() {
     }
   }
 
-  // Demo-only — fabricates an obviously-fake applicationId/merchantId/
-  // storeId, since this integration is currently blocked on an external,
-  // account-level gap (no transaction pricing plan provisioned) that no
-  // code change can work around. Server rejects this outright in
-  // production; see merchantSyncService.simulateOnboarding()'s docstring.
-  async function handleConfirmSimulate() {
-    setIsSimulating(true)
-    try {
-      await simulateMerchantOnboarding(merchantId)
-      toast.success('Simulated onboarding complete (demo mode — not a real Surfboard connection)')
-      simulateModal.close()
-      loadSyncStatus()
-    } catch (error) {
-      toast.error(error.message)
-    } finally {
-      setIsSimulating(false)
-    }
+  // Surfboard's own hosted KYB form — opened directly in a new tab, never
+  // embedded (Surfboard's onboarding pages commonly block iframe embedding
+  // as clickjacking protection on a KYC form, which silently breaks the
+  // flow with no error — a plain new-tab open has no such restriction).
+  function handleCompleteKyb() {
+    window.open(syncState.sync.webKybUrl, '_blank', 'noopener,noreferrer')
   }
 
   const load = useCallback(async () => {
@@ -263,6 +298,24 @@ export default function MerchantDetails() {
     }
   }
 
+  async function handleDeleteConfirm() {
+    setIsDeleting(true)
+    try {
+      await deleteMerchant(merchantId)
+      toast.success('Merchant deleted')
+      setIsDeleteOpen(false)
+      navigate(ROUTES.PLATFORM_MERCHANTS)
+    } catch (error) {
+      // Dialog stays open on failure (e.g. 409 — merchant still has
+      // branches/devices/active memberships/pending onboarding) so the
+      // admin sees the specific reason and can cancel or fix it first,
+      // same pattern as handleLifecycleConfirm above.
+      toast.error(error.message)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   function openInviteModal() {
     setInviteValues({ email: '', displayName: '' })
     setInviteErrors({})
@@ -329,7 +382,7 @@ export default function MerchantDetails() {
     }
   }
 
-  function copyInvitationValue(value, label) {
+  function copyToClipboard(value, label) {
     navigator.clipboard?.writeText(value)
     toast.info(`${label} copied to clipboard`)
   }
@@ -400,6 +453,10 @@ export default function MerchantDetails() {
                 Activate
               </Button>
             )}
+            <Button type="button" variant="danger" onClick={() => setIsDeleteOpen(true)}>
+              <Trash2 size={16} />
+              Delete
+            </Button>
           </div>
         }
       />
@@ -532,7 +589,7 @@ export default function MerchantDetails() {
                       type="button"
                       variant="secondary"
                       size="sm"
-                      onClick={() => copyInvitationValue(invitationAcceptanceLink(lastInvitation.token), 'Link')}
+                      onClick={() => copyToClipboard(invitationAcceptanceLink(lastInvitation.token), 'Link')}
                     >
                       <Copy size={14} />
                       Copy Invitation Link
@@ -541,7 +598,7 @@ export default function MerchantDetails() {
                       type="button"
                       variant="secondary"
                       size="sm"
-                      onClick={() => copyInvitationValue(lastInvitation.token, 'Token')}
+                      onClick={() => copyToClipboard(lastInvitation.token, 'Token')}
                     >
                       <Copy size={14} />
                       Copy Token
@@ -594,63 +651,117 @@ export default function MerchantDetails() {
         ) : (
           <Card>
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <dl className="grid flex-1 grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                <div>
-                  <dt className="text-neutral-500">Connection Status</dt>
-                  <dd className="flex items-center gap-1.5">
-                    <Badge tone={SYNC_STATUS_TONE[syncState.sync.syncStatus] ?? 'neutral'}>
-                      {SYNC_STATUS_LABEL[syncState.sync.syncStatus] ?? syncState.sync.syncStatus}
-                    </Badge>
-                    {syncState.sync.simulated && (
-                      <Badge tone="warning" title="Fabricated for demo purposes — not a real Surfboard connection">
-                        Demo
-                      </Badge>
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-neutral-500">Provider</dt>
-                  <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
-                    <Link2 size={13} className="text-neutral-500" />
-                    {syncState.sync.provider}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-neutral-500">External ID</dt>
-                  <dd className="truncate text-neutral-800 dark:text-neutral-200">{syncState.sync.externalId ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-neutral-500">Last Sync</dt>
-                  <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
-                    <Clock size={13} className="text-neutral-500" />
-                    {syncState.sync.lastSyncAt ? new Date(syncState.sync.lastSyncAt).toLocaleString() : 'Never'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-neutral-500">Pending Events</dt>
-                  <dd className="text-neutral-800 dark:text-neutral-200">{syncState.sync.pendingEvents}</dd>
-                </div>
-              </dl>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={CONNECTION_STATUS_TONE[deriveConnectionStatus(syncState.sync)]}>
+                  {CONNECTION_STATUS_LABEL[deriveConnectionStatus(syncState.sync)]}
+                </Badge>
+                {syncState.sync.applicationStatus && (
+                  <Badge tone={APPLICATION_STATUS_TONE[syncState.sync.applicationStatus] ?? 'neutral'}>
+                    {APPLICATION_STATUS_LABEL[syncState.sync.applicationStatus] ?? syncState.sync.applicationStatus}
+                  </Badge>
+                )}
+              </div>
 
               <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                {syncState.sync.webKybUrl && (
-                  <Button type="button" variant="secondary" size="sm" onClick={kybModal.open}>
+                {syncState.sync.webKybUrl && !syncState.sync.surfboardMerchantId && (
+                  <Button type="button" variant="secondary" size="sm" onClick={handleCompleteKyb}>
                     <ExternalLink size={14} />
-                    Complete Merchant Application
-                  </Button>
-                )}
-                {!syncState.sync.connected && (
-                  <Button type="button" variant="secondary" size="sm" onClick={simulateModal.open}>
-                    <Sparkles size={14} />
-                    Simulate Onboarding (Demo)
+                    Complete KYB
                   </Button>
                 )}
                 <Button type="button" variant="secondary" size="sm" onClick={handleManualSync} disabled={isSyncing}>
                   <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                  {isSyncing ? 'Syncing…' : 'Manual Sync'}
+                  {isSyncing ? 'Syncing…' : syncState.sync.connected ? 'Refresh Surfboard Status' : 'Manual Sync'}
                 </Button>
               </div>
             </div>
+
+            <dl className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <dt className="text-neutral-500">Application ID</dt>
+                <dd className="truncate text-neutral-800 dark:text-neutral-200">{syncState.sync.externalId ?? '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500">Provider</dt>
+                <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
+                  <Link2 size={13} className="text-neutral-500" />
+                  {syncState.sync.provider}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500">Last Sync</dt>
+                <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
+                  <Clock size={13} className="text-neutral-500" />
+                  {syncState.sync.lastSyncAt ? new Date(syncState.sync.lastSyncAt).toLocaleString() : 'Never'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500">Surfboard Merchant ID</dt>
+                <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
+                  {syncState.sync.surfboardMerchantId ? (
+                    <>
+                      <span className="truncate">{syncState.sync.surfboardMerchantId}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(syncState.sync.surfboardMerchantId, 'Merchant ID')}
+                        className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                        title="Copy Merchant ID"
+                      >
+                        <Copy size={13} />
+                      </button>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500">Surfboard Store ID</dt>
+                <dd className="flex items-center gap-1.5 text-neutral-800 dark:text-neutral-200">
+                  {syncState.sync.surfboardStoreId ? (
+                    <>
+                      <span className="truncate">{syncState.sync.surfboardStoreId}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(syncState.sync.surfboardStoreId, 'Store ID')}
+                        className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                        title="Copy Store ID"
+                      >
+                        <Copy size={13} />
+                      </button>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-neutral-500">Billing Plan</dt>
+                <dd className="truncate text-neutral-800 dark:text-neutral-200">
+                  {syncState.sync.billingPlans?.length ? syncState.sync.billingPlans.map((plan) => plan.id).join(', ') : '—'}
+                </dd>
+              </div>
+            </dl>
+
+            {syncState.sync.paymentMethods?.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-neutral-500">Payment Methods</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {syncState.sync.paymentMethods.map((method) => (
+                    <Badge key={method.paymentMethod} tone={method.status === 'ACTIVATED' ? 'success' : 'neutral'}>
+                      {method.paymentMethod} · {method.status}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="mt-4 text-xs text-neutral-500">
+              {syncState.sync.connected
+                ? (ONBOARDING_STAGE_DESCRIPTION[syncState.sync.applicationStatus] ??
+                  'Not yet checked — click "Refresh Surfboard Status" to fetch the current onboarding stage.')
+                : 'Onboarding has not started for this merchant yet.'}
+            </p>
 
             {syncState.sync.lastError && (
               <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-500/10 px-3 py-2.5 text-sm text-red-700 dark:border-red-900/40 dark:text-red-300">
@@ -828,50 +939,6 @@ export default function MerchantDetails() {
         invitation={lastInvitation}
       />
 
-      <Modal
-        isOpen={kybModal.isOpen}
-        onClose={kybModal.close}
-        title="Complete Merchant Application"
-        description="Surfboard's own KYB form — company, ownership, bank, and product details are entered here, directly with Surfboard."
-        size="xl"
-      >
-        {syncState.sync?.webKybUrl && (
-          <iframe
-            src={syncState.sync.webKybUrl}
-            title="Surfboard KYB Application"
-            className="h-[70vh] w-full rounded-lg border border-neutral-200 dark:border-neutral-800"
-          />
-        )}
-      </Modal>
-
-      <Modal
-        isOpen={simulateModal.isOpen}
-        onClose={simulateModal.close}
-        title="Simulated Merchant Application (Demo)"
-        description="This is a stand-in for Surfboard's real KYB application — no data here is sent to Surfboard."
-      >
-        <div className="space-y-4 text-sm text-neutral-700 dark:text-neutral-300">
-          <p>
-            Surfboard's real onboarding is currently blocked by an account-level gap (no transaction pricing plan
-            provisioned for this partner account) that no request from GainBox can work around. This simulated step
-            fabricates an obviously-fake application, merchant, and store ID so you can continue building and
-            demoing the rest of the project without waiting on that external dependency.
-          </p>
-          <p className="rounded-lg border border-amber-300/60 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:border-amber-900/40 dark:text-amber-300">
-            Not a real Surfboard connection. The resulting Connection Status will be clearly labeled{' '}
-            <strong>Demo</strong>.
-          </p>
-          <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="secondary" size="sm" onClick={simulateModal.close}>
-              Cancel
-            </Button>
-            <Button type="button" size="sm" onClick={handleConfirmSimulate} disabled={isSimulating}>
-              {isSimulating ? 'Completing…' : 'Complete Simulated Application'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
       <ConfirmDialog
         isOpen={Boolean(lifecycleAction)}
         onClose={() => setLifecycleAction(null)}
@@ -885,6 +952,17 @@ export default function MerchantDetails() {
         confirmLabel={lifecycleAction === 'activate' ? 'Activate' : 'Deactivate'}
         tone={lifecycleAction === 'activate' ? 'primary' : 'danger'}
         isLoading={isTransitioning}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        onConfirm={handleDeleteConfirm}
+        title="Delete merchant?"
+        description={`"${merchant.businessName}" will be soft-deleted (hidden from the merchant list, recoverable via direct database access) and only if it has no branches, devices, active memberships, or pending Surfboard onboarding — any of those will block this with an error.`}
+        confirmLabel="Delete"
+        tone="danger"
+        isLoading={isDeleting}
       />
 
       <ConfirmDialog

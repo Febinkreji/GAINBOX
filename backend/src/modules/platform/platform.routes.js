@@ -453,6 +453,65 @@ router.post(
 
 /**
  * @openapi
+ * /platform/merchants/{merchantId}:
+ *   delete:
+ *     summary: Delete a merchant (Platform Administration)
+ *     description: >
+ *       Soft-deletes via merchant.service.js's remove() — sets `deleted_at`;
+ *       the row is never physically removed, matching the same pattern
+ *       already used for incidents/runbooks/recommendations. Blocked with
+ *       409 if the merchant has any branches, devices, active memberships
+ *       (subscriptions to any of its membership plans), or a pending/running
+ *       Surfboard onboarding sync. On success, every pending/expired
+ *       invitation for the merchant is revoked and its Surfboard provider
+ *       link (if any) is soft-deleted, all in the same transaction as the
+ *       merchant's own soft-delete. Records a `merchant.deleted` audit entry
+ *       and a `MerchantDeleted` outbox event.
+ *     tags: [Platform]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: merchantId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Merchant deleted
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiResponse' }
+ *       401:
+ *         description: Missing or invalid bearer token
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       403:
+ *         description: Caller is not a platform-admin
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *       404:
+ *         description: Merchant not found
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/NotFoundError' }
+ *       409:
+ *         description: >
+ *           Merchant has branches, devices, active memberships, and/or
+ *           pending Surfboard onboarding — the error message names which.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ */
+router.delete(
+  '/merchants/:merchantId',
+  validate(merchantIdParamSchema, 'params'),
+  platformController.removeMerchant,
+)
+
+/**
+ * @openapi
  * /platform/users:
  *   get:
  *     summary: Paginated user overview

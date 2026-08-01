@@ -19,3 +19,4 @@ export { surfboardMerchantAdapter } from './adapters/surfboardMerchantAdapter.js
 export { surfboardStoreAdapter } from './adapters/surfboardStoreAdapter.js'
 export { surfboardDeviceAdapter } from './adapters/surfboardDeviceAdapter.js'
 export { surfboardPaymentAdapter } from './adapters/surfboardPaymentAdapter.js'
+export { surfboardBillingAdapter } from './adapters/surfboardBillingAdapter.js'

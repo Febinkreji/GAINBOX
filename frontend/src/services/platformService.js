@@ -36,6 +36,10 @@ export function deactivateMerchant(merchantId) {
   return apiClient.post(`/platform/merchants/${merchantId}/deactivate`).then((res) => res.data.data)
 }
 
+export function deleteMerchant(merchantId) {
+  return apiClient.delete(`/platform/merchants/${merchantId}`).then((res) => res.data)
+}
+
 export function listUsers(params) {
   return apiClient.get('/platform/users', { params }).then((res) => res.data)
 }
@@ -82,12 +86,6 @@ export function getMerchantSyncStatus(merchantId) {
 
 export function triggerMerchantSync(merchantId) {
   return apiClient.post(`/integrations/surfboard/merchants/${merchantId}/sync`).then((res) => res.data.data)
-}
-
-// Demo-only — see merchantSyncService.simulateOnboarding()'s docstring. Not
-// a real Surfboard connection; disabled server-side in production.
-export function simulateMerchantOnboarding(merchantId) {
-  return apiClient.post(`/integrations/surfboard/merchants/${merchantId}/simulate`).then((res) => res.data.data)
 }
 
 export function getMerchantSyncHistory(merchantId, params) {
