@@ -1,11 +1,26 @@
 import { membershipPlanRepository } from './membershipPlan.repository.js'
 import { subscriptionRepository } from './subscription.repository.js'
 import { merchantRepository } from '../merchant/merchant.repository.js'
+import { paymentRepository } from '../payment/payment.repository.js'
 import { auditService } from '../audit/audit.service.js'
 import { outboxService } from '../outbox/outbox.service.js'
 import { withTransaction } from '../../database/connection.js'
 import { NotFoundError, ConflictError } from '../../errors/index.js'
 import { parsePagination, buildPaginationMeta } from '../../utils/pagination.js'
+import { logger } from '../../logger/logger.js'
+
+/**
+ * Internal control-flow signal only — never thrown across this module's own
+ * boundary, never serialized to a caller. Distinguishes "another concurrent
+ * createSubscription() call already linked this paymentId" (roll back,
+ * return the winner) from a genuine failure inside the transaction.
+ */
+class SubscriptionRaceLost extends Error {
+  constructor(paymentId) {
+    super(`Lost the race to link subscription for paymentId ${paymentId}`)
+    this.paymentId = paymentId
+  }
+}
 
 /**
  * No Surfboard integration point in this module — plans and subscriptions
@@ -207,32 +222,85 @@ export const membershipService = {
       throw new ConflictError('Cannot subscribe to an archived membership plan')
     }
 
-    return withTransaction(async (client) => {
-      const created = await subscriptionRepository.create(data, client)
+    // Idempotency fast path — a paymentId can only ever back one
+    // subscription. Checked before opening a transaction so the common,
+    // non-racing case (a page refresh, or the two Membership Sales redirect
+    // paths firing a few seconds apart) never even creates a throwaway row.
+    // `paymentExists` is also what tells the race guard below apart from
+    // the "paymentId doesn't resolve to a real row" case — both make
+    // linkSubscriptionIfUnset() return null, but only one is a real race.
+    let paymentExists = false
 
-      await auditService.record(
-        {
-          entityType: 'subscription',
-          entityId: created.id,
-          action: 'subscription.created',
-          actorUserId: actorUserId ?? null,
-          metadata: { membershipPlanId: created.membershipPlanId, customerId: created.customerId },
-        },
-        client,
-      )
+    if (data.paymentId) {
+      const existingPayment = await paymentRepository.findById(data.paymentId)
+      paymentExists = Boolean(existingPayment)
 
-      await outboxService.publish(
-        {
-          eventType: 'SubscriptionCreated',
-          aggregateType: 'subscription',
-          aggregateId: created.id,
-          payload: created,
-        },
-        client,
-      )
+      if (existingPayment?.subscriptionId) {
+        return subscriptionRepository.findById(existingPayment.subscriptionId)
+      }
+    }
 
-      return created
-    })
+    try {
+      return await withTransaction(async (client) => {
+        const created = await subscriptionRepository.create(data, client)
+
+        if (data.paymentId && paymentExists) {
+          // Atomic race guard — closes the real gap the fast-path check
+          // above can't: HostedCheckoutModal's poll (original tab) and
+          // CheckoutCallback (new tab from "Open Checkout") can both reach
+          // here within the same few hundred ms after the payment turns
+          // 'paid'. linkSubscriptionIfUnset()'s `WHERE subscription_id IS
+          // NULL` means only one of these two transactions' UPDATE actually
+          // matches — the loser gets `null` and throws to roll back its own
+          // just-created subscription rather than leaving two live rows
+          // for one payment.
+          const linked = await paymentRepository.linkSubscriptionIfUnset(data.paymentId, created.id, client)
+
+          if (!linked) {
+            throw new SubscriptionRaceLost(data.paymentId)
+          }
+        } else if (data.paymentId && !paymentExists) {
+          logger.warn(
+            { subscriptionId: created.id, paymentId: data.paymentId },
+            'createSubscription: paymentId did not resolve to a real payment — subscription created without the link',
+          )
+        }
+
+        await auditService.record(
+          {
+            entityType: 'subscription',
+            entityId: created.id,
+            action: 'subscription.created',
+            actorUserId: actorUserId ?? null,
+            metadata: { membershipPlanId: created.membershipPlanId, customerId: created.customerId },
+          },
+          client,
+        )
+
+        await outboxService.publish(
+          {
+            eventType: 'SubscriptionCreated',
+            aggregateType: 'subscription',
+            aggregateId: created.id,
+            payload: created,
+          },
+          client,
+        )
+
+        return created
+      })
+    } catch (error) {
+      if (error instanceof SubscriptionRaceLost) {
+        logger.info(
+          { paymentId: error.paymentId },
+          'createSubscription: lost the race to link this payment — returning the subscription that won instead',
+        )
+        const winnerPayment = await paymentRepository.findById(error.paymentId)
+        return subscriptionRepository.findById(winnerPayment.subscriptionId)
+      }
+
+      throw error
+    }
   },
 
   async cancelSubscription(id, actorUserId) {
